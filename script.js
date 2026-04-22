@@ -82,6 +82,12 @@ const getBackendHost = () => {
 };
 
 const BACKEND_HOST = getBackendHost();
+
+function getApiUrl() {
+    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
+    return `//${BACKEND_HOST}/api`;
+}
+
 const WS_URL = (() => {
     if (window.location.protocol === 'https:') {
         return `wss://${BACKEND_HOST}`;
@@ -423,7 +429,7 @@ async function handleRegister(event) {
     if (password.length < 6) return showToast(currentLang==='ar'?'كلمة السر 6 أحرف على الأقل':'Min 6 characters','error');
 
     try {
-        const response = await fetch('/api/register', {
+        const response = await fetch(`${getApiUrl()}/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ fullname, phone, password })
@@ -449,7 +455,7 @@ async function handleLogin(event) {
     const pwd = document.getElementById('login-password').value;
 
     try {
-        const response = await fetch('/api/login', {
+        const response = await fetch(`${getApiUrl()}/login`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ id, password: pwd })
@@ -512,7 +518,7 @@ function startLiveRefresh() {
 
 async function refreshAuction() {
     try {
-        const response = await fetch('/api/auctions');
+        const response = await fetch(`${getApiUrl()}/auctions`);
         const auctions = await response.json();
         const active = auctions.find(a => a.status === 'active')
                     || auctions.find(a => a.status === 'paused')
@@ -673,7 +679,7 @@ async function placeBid() {
         return showToast(currentLang==='ar'?'يجب أن يكون المبلغ أعلى من '+cp.toLocaleString():'Must exceed '+cp,'error');
 
     try {
-        const response = await fetch('/api/bid', {
+        const response = await fetch(`${getApiUrl()}/bid`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -877,7 +883,7 @@ function showAdminTab(tab) {
 
 async function loadDashboard() {
     try {
-        const stats = await fetch('/api/stats').then(r => r.json());
+        const stats = await fetch(`${getApiUrl()}/stats`).then(r => r.json());
         document.getElementById('dash-pending').textContent = stats.pending || 0;
         document.getElementById('dash-approved').textContent = stats.totalUsers || 0;
         document.getElementById('dash-active').textContent = stats.activeAuctions || 0;
@@ -1331,7 +1337,7 @@ async function exportData() {
 /* ===== الوظائف الجديدة ===== */
 async function loadAdminMessages() {
     try {
-        const res = await fetch('/api/messages');
+        const res = await fetch(`${getApiUrl()}/messages`);
         const messages = await res.json();
         const container = document.getElementById('admin-messages-list');
         if (!container) return;
@@ -1357,7 +1363,7 @@ async function sendBroadcast(event) {
     if (!content) return;
     
     try {
-        await fetch('/api/broadcast', {
+        await fetch(`${getApiUrl()}/broadcast`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ content })
@@ -1394,7 +1400,7 @@ function clearAllData() {
         `<p>${currentLang==='ar'?'سيتم حذف جميع البيانات نهائياً!':'All data will be deleted!'}</p>`,
         async () => {
             if (confirm(currentLang==='ar'?'اكتب "DELETE" للتأكيد':'Type "DELETE" to confirm')) {
-                await fetch('/api/admin/clear-all', { method: 'POST' });
+                await fetch(`${getApiUrl()}/admin/clear-all`, { method: 'POST' });
                 showToast(currentLang==='ar'?'✅ تم المسح':'✅ Cleared','success');
             }
         },
