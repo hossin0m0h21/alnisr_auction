@@ -84,8 +84,10 @@ const getBackendHost = () => {
 const BACKEND_HOST = getBackendHost();
 
 function getApiUrl() {
-    const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-    return `//${BACKEND_HOST}/api`;
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'http://localhost:3000/api';
+    }
+    return `https://${BACKEND_HOST}/api`;
 }
 
 const WS_URL = (() => {
