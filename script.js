@@ -78,7 +78,7 @@ const getBackendHost = () => {
         return 'localhost:3000';
     }
     // في الإنتاج: استخدم رابط Render الخاص بك
-    return 'alnisr-auction.onrender.com'; // 📝 غيّر برابط Render هنا
+    return 'alnisr-auction1.onrender.com'; // 📝 رابط Render هنا
 };
 
 const BACKEND_HOST = getBackendHost();
