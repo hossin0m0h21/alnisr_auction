@@ -641,7 +641,7 @@ async function refreshBidHistory() {
     if (!div || !window._currentAuction) return;
     
     try {
-        const response = await fetch(`/api/bids/${window._currentAuction.id}`);
+        const response = await fetch(`${getApiUrl()}/bids/${window._currentAuction.id}`);
         const bids = await response.json();
         
         if (!bids.length) {
@@ -1414,10 +1414,8 @@ function clearAllData() {
    التهيئة الرئيسية
    ============================================================ */
 window.addEventListener('DOMContentLoaded', async () => {
-    await initDB();
     applyLang();
     initWebSocket();
-    startPolling();
     const path = window.location.pathname;
 
     if (path.includes('auction.html')) {
@@ -1430,10 +1428,11 @@ window.addEventListener('DOMContentLoaded', async () => {
         }
     } else if (path.includes('profile.html')) {
         await loadMemberProfile();
-        if (liveInterval) clearInterval(liveInterval);
-        liveInterval = setInterval(loadMemberProfile, 5000);
+        setInterval(loadMemberProfile, 5000);
     } else if (path.includes('login.html')) {
         const saved = localStorage.getItem('alnisrCurrentUser');
         if (saved) currentUser = JSON.parse(saved);
+    } else if (path.includes('chat.html')) {
+        await loadChatMessages();
     }
 });
