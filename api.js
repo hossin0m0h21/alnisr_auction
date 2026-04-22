@@ -1,7 +1,7 @@
 // ⚠️ تحديث: استخدم رابط Render الخاص بك أو localhost للتطوير
 const BACKEND_HOST = window.location.hostname === 'localhost' 
     ? 'localhost:3000'
-    : 'alnisr-auction.onrender.com'; // 📝 غيّر برابط Render الفعلي هنا
+    : 'alnisr-auction1.onrender.com'; // 📝 رابط Render الفعلي
 
 const API_URL = (() => {
     if (typeof window !== 'undefined') {
