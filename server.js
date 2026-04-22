@@ -89,14 +89,15 @@ app.use(cors({
 
 // ===== Rate Limiting =====
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 دقيقة
-    max: 100, // 100 طلب لكل IP
-    message: 'عدد كبير جداً من الطلبات، حاول لاحقاً'
+    windowMs: 15 * 60 * 1000,
+    max: 1000,
+    message: 'عدد كبير من الطلبات'
 });
+
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 5, // 5 محاولات تسجيل
-    message: 'عدد محاولات تسجيل الدخول كثير جداً'
+    max: 100,
+    message: 'حاول لاحقاً'
 });
 
 app.use(limiter);
