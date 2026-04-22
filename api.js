@@ -1,5 +1,7 @@
-// غير برابط Backend الخاص بك من Render
-const BACKEND_HOST = 'your-alnisr-app.onrender.com'; // ✏️ غير هنا برابطك من Render
+// ⚠️ تحديث: استخدم رابط Render الخاص بك أو localhost للتطوير
+const BACKEND_HOST = window.location.hostname === 'localhost' 
+    ? 'localhost:3000'
+    : 'alnisr-auction.onrender.com'; // 📝 غيّر برابط Render الفعلي هنا
 
 const API_URL = (() => {
     if (typeof window !== 'undefined') {
@@ -21,7 +23,8 @@ const WS_URL = (() => {
     return 'ws://localhost:3000';
 })();
 
-console.log('API:', API_URL);
+console.log('🔗 API URL:', API_URL);
+console.log('🔗 WebSocket URL:', WS_URL);
 
 let ws = null;
 let wsCallbacks = {};

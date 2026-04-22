@@ -71,7 +71,28 @@ if (bc) {
    WebSocket - الاتصال بالخادم للتحديثات الفورية
    ============================================================ */
 let ws = null;
-const WS_URL = window.location.protocol === 'https:' ? 'wss://' + window.location.host : 'ws://' + window.location.host;
+
+// 🔧 تحديد رابط Backend الصحيح
+const getBackendHost = () => {
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return 'localhost:3000';
+    }
+    // في الإنتاج: استخدم رابط Render الخاص بك
+    return 'alnisr-auction.onrender.com'; // 📝 غيّر برابط Render هنا
+};
+
+const BACKEND_HOST = getBackendHost();
+const WS_URL = (() => {
+    if (window.location.protocol === 'https:') {
+        return `wss://${BACKEND_HOST}`;
+    } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return `ws://localhost:3000`;
+    } else {
+        return `wss://${BACKEND_HOST}`;
+    }
+})();
+
+console.log('🔗 WebSocket URL:', WS_URL);
 
 function initWebSocket() {
     try {
@@ -249,16 +270,34 @@ function toggleLanguage() {
     const btn = document.querySelector('.lang-toggle');
     if (btn) btn.textContent = currentLang === 'ar' ? 'EN' : 'عربي';
     localStorage.setItem('alnisrLang', currentLang);
+    // تطبيق التحديثات الفورية للنصوص
     updateTexts();
+    setTimeout(() => updateTexts(), 50);
+    console.log('✅ تم تبديل اللغة إلى:', currentLang);
 }
 
 function updateTexts() {
     document.querySelectorAll('[data-ar][data-en]').forEach(el => {
         const text = currentLang === 'ar' ? el.getAttribute('data-ar') : el.getAttribute('data-en');
         if (!text) return;
+        
+        // للمدخلات والأزرار
         if ((el.tagName === 'INPUT' || el.tagName === 'BUTTON') &&
-            ['text','password','number','tel','datetime-local'].includes(el.type)) return;
-        el.textContent = text;
+            ['text','password','number','tel','datetime-local','email'].includes(el.type)) {
+            if (el.type === 'button' || el.tagName === 'BUTTON') {
+                el.textContent = text;
+            } else {
+                el.placeholder = text;
+            }
+        } else {
+            // للعناصر الأخرى
+            el.textContent = text;
+        }
+        
+        // تحديث title للفائدة الإضافية
+        if (el.getAttribute('data-title-ar') && el.getAttribute('data-title-en')) {
+            el.title = currentLang === 'ar' ? el.getAttribute('data-title-ar') : el.getAttribute('data-title-en');
+        }
     });
 }
 
@@ -269,6 +308,8 @@ function applyLang() {
     const btn = document.querySelector('.lang-toggle');
     if (btn) btn.textContent = currentLang === 'ar' ? 'EN' : 'عربي';
     updateTexts();
+    // تطبيق اللغة على جميع العناصر فوراً
+    setTimeout(() => updateTexts(), 100);
 }
 
 /* ============================================================
