@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/alnisr';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://alnisr_auction:Hmh4242001@alnisrauction.l7jysft.mongodb.net/?appName=AlnisrAuction';
 
 let db = null;
 
