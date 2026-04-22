@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>تسجيل الدخول - ALNISR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo-link">
+                <img src="alnisr_auction.jpeg" alt="ALNISR Logo" class="logo-img">
+                <span class="logo-text">ALNISR</span>
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a></li>
+                <li><a href="auction.html" data-ar="المزاد المباشر" data-en="Live Auction">المزاد المباشر</a></li>
+                <li><a href="profile.html" data-ar="الملف الشخصي" data-en="Profile">الملف الشخصي</a></li>
+                <li><a href="login.html" class="active" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a></li>
+            </ul>
+            <button class="lang-toggle" onclick="toggleLanguage()">EN</button>
+        </div>
+    </nav>
+
+    <main class="auth-page">
+        <div class="auth-left">
+            <div class="auth-brand">
+                <img src="alnisr_auction.jpeg" alt="ALNISR" class="auth-brand-logo">
+                <h2>ALNISR ALASWAD</h2>
+                <p data-ar="مزاد الطيور والحيوانات الأليفة" data-en="Birds & Pets Auction">مزاد الطيور والحيوانات الأليفة</p>
+            </div>
+            <div class="auth-features">
+                <div class="auth-feature-item">
+                    <span class="af-icon">🎯</span>
+                    <div>
+                        <strong data-ar="مزادات يومية" data-en="Daily Auctions">مزادات يومية</strong>
+                        <p data-ar="شارك في مزادات مباشرة كل يوم" data-en="Join live auctions every day">شارك في مزادات مباشرة كل يوم</p>
+                    </div>
+                </div>
+                <div class="auth-feature-item">
+                    <span class="af-icon">🔒</span>
+                    <div>
+                        <strong data-ar="حساب آمن" data-en="Secure Account">حساب آمن</strong>
+                        <p data-ar="بيانات الأعضاء محمية ومشفرة" data-en="Members data is protected">بيانات الأعضاء محمية ومشفرة</p>
+                    </div>
+                </div>
+                <div class="auth-feature-item">
+                    <span class="af-icon">👑</span>
+                    <div>
+                        <strong data-ar="أفضل الأسعار" data-en="Best Prices">أفضل الأسعار</strong>
+                        <p data-ar="احصل على أعلى سعر لحيواناتك" data-en="Get the best price for your animals">احصل على أعلى سعر لحيواناتك</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="auth-right">
+            <div class="auth-box">
+                <div class="tab-buttons">
+                    <button class="tab-btn active" onclick="showTab('login')" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</button>
+                    <button class="tab-btn" onclick="showTab('register')" data-ar="إنشاء حساب" data-en="Register">إنشاء حساب</button>
+                </div>
+
+                <!-- نموذج تسجيل الدخول -->
+                <div id="login-form" class="auth-form">
+                    <h2 data-ar="مرحباً بك 👋" data-en="Welcome Back 👋">مرحباً بك 👋</h2>
+                    <p class="auth-sub" data-ar="سجّل دخولك للمشاركة في المزاد المباشر" data-en="Login to join the live auction">سجّل دخولك للمشاركة في المزاد المباشر</p>
+                    <form onsubmit="handleLogin(event)">
+                        <div class="form-group">
+                            <label data-ar="رقم العضوية أو رقم الموبايل" data-en="Member ID or Phone Number">رقم العضوية أو رقم الموبايل</label>
+                            <div class="input-icon-wrap">
+                                <span class="input-icon">👤</span>
+                                <input type="text" id="login-id" required autocomplete="username"
+                                    data-placeholder-ar="أدخل رقم العضوية أو الموبايل"
+                                    data-placeholder-en="Enter member ID or phone"
+                                    placeholder="أدخل رقم العضوية أو الموبايل">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="كلمة السر" data-en="Password">كلمة السر</label>
+                            <div class="input-icon-wrap">
+                                <span class="input-icon">🔒</span>
+                                <input type="password" id="login-password" required autocomplete="current-password"
+                                    data-placeholder-ar="أدخل كلمة السر"
+                                    data-placeholder-en="Enter password"
+                                    placeholder="أدخل كلمة السر">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-auth" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</button>
+                    </form>
+                    <p class="admin-link">
+                        <a href="admin.html" data-ar="🔐 دخول المشرف" data-en="🔐 Admin Login">🔐 دخول المشرف</a>
+                    </p>
+                </div>
+
+                <!-- نموذج إنشاء الحساب -->
+                <div id="register-form" class="auth-form" style="display:none;">
+                    <h2 data-ar="إنشاء حساب جديد ✨" data-en="Create New Account ✨">إنشاء حساب جديد ✨</h2>
+                    <p class="auth-sub" data-ar="انضم لمجتمع مزاد ALNISR اليوم" data-en="Join the ALNISR auction community today">انضم لمجتمع مزاد ALNISR اليوم</p>
+                    <form onsubmit="handleRegister(event)">
+                        <div class="form-group">
+                            <label data-ar="الاسم الثلاثي" data-en="Full Name (Three Parts)">الاسم الثلاثي</label>
+                            <div class="input-icon-wrap">
+                                <span class="input-icon">✍️</span>
+                                <input type="text" id="reg-fullname" required
+                                    data-placeholder-ar="مثال: محمد أحمد علي"
+                                    data-placeholder-en="e.g. Mohammed Ahmed Ali"
+                                    placeholder="مثال: محمد أحمد علي">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="رقم الموبايل" data-en="Mobile Number">رقم الموبايل</label>
+                            <div class="input-icon-wrap">
+                                <span class="input-icon">📱</span>
+                                <input type="tel" id="reg-phone" required
+                                    data-placeholder-ar="+971XXXXXXXXX"
+                                    data-placeholder-en="+971XXXXXXXXX"
+                                    placeholder="+971XXXXXXXXX">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="كلمة السر" data-en="Password">كلمة السر</label>
+                            <div class="input-icon-wrap">
+                                <span class="input-icon">🔒</span>
+                                <input type="password" id="reg-password" required autocomplete="new-password"
+                                    data-placeholder-ar="6 أحرف على الأقل"
+                                    data-placeholder-en="At least 6 characters"
+                                    placeholder="6 أحرف على الأقل">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="تأكيد كلمة السر" data-en="Confirm Password">تأكيد كلمة السر</label>
+                            <div class="input-icon-wrap">
+                                <span class="input-icon">🔒</span>
+                                <input type="password" id="reg-confirm-password" required autocomplete="new-password"
+                                    data-placeholder-ar="أعد كتابة كلمة السر"
+                                    data-placeholder-en="Repeat password"
+                                    placeholder="أعد كتابة كلمة السر">
+                            </div>
+                        </div>
+                        <button type="submit" class="btn-auth" data-ar="إنشاء الحساب" data-en="Create Account">إنشاء الحساب</button>
+                    </form>
+                    <div class="info-message" data-ar="⏳ سيتم مراجعة طلبك من قبل المشرف قبل التفعيل" data-en="⏳ Your request will be reviewed by admin before activation">⏳ سيتم مراجعة طلبك من قبل المشرف قبل التفعيل</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-inner">
+            <div class="footer-logo">
+                <img src="alnisr_auction.jpeg" alt="ALNISR" class="footer-logo-img">
+                <span>ALNISR ALASWAD</span>
+            </div>
+            <div class="footer-links">
+                <a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a>
+                <a href="auction.html" data-ar="المزاد" data-en="Auction">المزاد</a>
+                <a href="admin.html" data-ar="المشرف" data-en="Admin">المشرف</a>
+            </div>
+            <p class="footer-copy" data-ar="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة" data-en="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. All Rights Reserved">© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>المزاد المباشر - ALNISR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo-link">
+                <img src="alnisr_auction.jpeg" alt="ALNISR Logo" class="logo-img">
+                <span class="logo-text">ALNISR</span>
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a></li>
+                <li><a href="auction.html" class="active" data-ar="المزاد المباشر" data-en="Live Auction">المزاد المباشر</a></li>
+                <li><a href="chat.html" data-ar="الدردشة" data-en="Chat">الدردشة</a></li>
+                <li><a href="profile.html" data-ar="الملف الشخصي" data-en="Profile">الملف الشخصي</a></li>
+                <li><a href="login.html" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a></li>
+            </ul>
+            <div class="nav-actions">
+                <button class="lang-toggle" onclick="toggleLanguage()">EN</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="auction-header">
+            <h1 data-ar="🔴 المزاد المباشر" data-en="🔴 Live Auction">🔴 المزاد المباشر</h1>
+            <div class="user-info" id="user-info" style="display:none;">
+                <span data-ar="مرحباً،" data-en="Welcome,">مرحباً،</span>
+                <strong id="username"></strong>
+                <span class="member-id-badge" id="member-id-display"></span>
+                <button onclick="logout()" class="btn-secondary" data-ar="خروج" data-en="Logout">خروج</button>
+            </div>
+        </div>
+
+        <div id="login-required" class="message-box" style="display:none;">
+            <h2 data-ar="⚠️ يجب تسجيل الدخول" data-en="⚠️ Login Required">⚠️ يجب تسجيل الدخول</h2>
+            <p data-ar="يرجى تسجيل الدخول للمشاركة في المزاد المباشر" data-en="Please login to participate in the live auction">يرجى تسجيل الدخول للمشاركة في المزاد المباشر</p>
+            <a href="login.html" class="btn-primary" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a>
+        </div>
+
+        <div id="auction-content" style="display:none;">
+            <div class="auction-status-bar">
+                <div class="status-item">
+                    <span data-ar="الحالة:" data-en="Status:">الحالة:</span>
+                    <span id="auction-status" class="status-badge">-</span>
+                </div>
+                <div class="status-item timer-box">
+                    <span data-ar="الوقت المتبقي:" data-en="Time Left:">الوقت المتبقي:</span>
+                    <span id="auction-timer-display" class="auction-timer">--:--</span>
+                </div>
+                <div class="status-item">
+                    <span data-ar="التاريخ:" data-en="Date:">التاريخ:</span>
+                    <span id="auction-date">-</span>
+                </div>
+                <div class="live-dot-wrap">
+                    <span class="live-dot"></span>
+                    <span data-ar="مباشر" data-en="LIVE">مباشر</span>
+                </div>
+            </div>
+
+            <div class="auction-grid">
+                <div class="auction-main-card">
+                    <h2 data-ar="العنصر الحالي" data-en="Current Item">العنصر الحالي</h2>
+                    <div class="item-media-gallery" id="item-gallery"></div>
+                    <div class="item-details">
+                        <h3 id="item-name">-</h3>
+                        <p id="item-description" class="item-desc"></p>
+                        <div class="price-info">
+                            <div class="price-box">
+                                <label data-ar="السعر الابتدائي" data-en="Starting Price">السعر الابتدائي</label>
+                                <span id="start-price">-</span>
+                            </div>
+                            <div class="price-box current">
+                                <label data-ar="السعر الحالي" data-en="Current Price">السعر الحالي</label>
+                                <span id="current-price" class="price-highlight">-</span>
+                            </div>
+                        </div>
+                        <div class="highest-bidder-bar">
+                            <span>👑</span>
+                            <span data-ar="أعلى مزايد:" data-en="Top Bidder:">أعلى مزايد:</span>
+                            <strong id="highest-bidder">-</strong>
+                        </div>
+                    </div>
+
+                    <div class="bid-section">
+                        <h3 data-ar="قدم عرضك" data-en="Place Your Bid">قدم عرضك</h3>
+                        <div class="bid-input-group">
+                            <input type="number" id="bid-amount" placeholder="أدخل المبلغ" min="0">
+                            <button id="bid-btn" onclick="placeBid()" class="btn-primary" data-ar="مزايدة ←" data-en="Bid →">مزايدة ←</button>
+                        </div>
+                        <div class="quick-bids">
+                            <button onclick="quickBid(100)" class="quick-btn">+100</button>
+                            <button onclick="quickBid(500)" class="quick-btn">+500</button>
+                            <button onclick="quickBid(1000)" class="quick-btn">+1000</button>
+                            <button onclick="quickBid(5000)" class="quick-btn">+5000</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bidding-history-card">
+                    <h2 data-ar="📊 سجل المزايدات" data-en="📊 Bid History">📊 سجل المزايدات</h2>
+                    <div id="bid-history" class="history-list"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-inner">
+            <div class="footer-logo">
+                <img src="alnisr_auction.jpeg" alt="ALNISR" class="footer-logo-img">
+                <span>ALNISR ALASWAD</span>
+            </div>
+            <div class="footer-links">
+                <a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a>
+                <a href="auction.html" data-ar="المزاد" data-en="Auction">المزاد</a>
+                <a href="login.html" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a>
+                <a href="admin.html" data-ar="المشرف" data-en="Admin">المشرف</a>
+            </div>
+            <p class="footer-copy" data-ar="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة" data-en="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. All Rights Reserved">© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

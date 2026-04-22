@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم المشرف - ALNISR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo-link">
+                <img src="alnisr_auction.jpeg" alt="ALNISR Logo" class="logo-img">
+                <span class="logo-text">ALNISR</span>
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a></li>
+                <li><span data-ar="لوحة التحكم" data-en="Admin Panel">لوحة التحكم</span></li>
+                <li><a href="profile.html" data-ar="الملف الشخصي" data-en="Profile">الملف الشخصي</a></li>
+            </ul>
+            <div class="nav-actions">
+                <button class="lang-toggle" onclick="toggleLanguage()">EN</button>
+            </div>
+        </div>
+    </nav>
+
+    <div id="admin-login" class="auth-container">
+        <div class="auth-box">
+            <div class="auth-icon">🔐</div>
+            <h1 data-ar="دخول المشرف" data-en="Admin Login">دخول المشرف</h1>
+            <form onsubmit="handleAdminLogin(event)">
+                <div class="form-group">
+                    <label data-ar="كلمة السر" data-en="Password">كلمة السر</label>
+                    <input type="password" id="admin-password" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn-primary" style="width:100%;" data-ar="دخول" data-en="Login">دخول</button>
+            </form>
+        </div>
+    </div>
+
+    <main id="admin-panel" class="container" style="display:none;">
+        <div class="admin-header">
+            <h1 data-ar="🛡️ لوحة تحكم المشرف" data-en="🛡️ Admin Control Panel">🛡️ لوحة تحكم المشرف</h1>
+            <button onclick="adminLogout()" class="btn-secondary" data-ar="تسجيل الخروج" data-en="Logout">تسجيل الخروج</button>
+        </div>
+
+        <div class="admin-tabs">
+            <button class="admin-tab-btn active" onclick="showAdminTab('dashboard')" data-ar="📊 لوحة القيادة" data-en="📊 Dashboard">📊 لوحة القيادة</button>
+            <button class="admin-tab-btn" onclick="showAdminTab('members')" data-ar="👥 الأعضاء" data-en="👥 Members">👥 الأعضاء</button>
+            <button class="admin-tab-btn" onclick="showAdminTab('auction')" data-ar="🎯 المزاد" data-en="🎯 Auction">🎯 المزاد</button>
+            <button class="admin-tab-btn" onclick="showAdminTab('messages')" data-ar="💬 الرسائل" data-en="💬 Messages">💬 الرسائل</button>
+            <button class="admin-tab-btn" onclick="showAdminTab('settings')" data-ar="⚙️ الإعدادات" data-en="⚙️ Settings">⚙️ الإعدادات</button>
+        </div>
+
+        <!-- تبويب لوحة القيادة -->
+        <div id="dashboard-tab" class="admin-tab-content">
+            <div class="stats-cards">
+                <div class="stat-card">
+                    <div class="stat-icon">⏳</div>
+                    <h3 data-ar="طلبات معلقة" data-en="Pending">طلبات معلقة</h3>
+                    <span class="stat-number" id="dash-pending">0</span>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <h3 data-ar="أعضاء معتمدين" data-en="Approved">أعضاء معتمدين</h3>
+                    <span class="stat-number" id="dash-approved">0</span>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">🎯</div>
+                    <h3 data-ar="مزادات نشطة" data-en="Active">مزادات نشطة</h3>
+                    <span class="stat-number" id="dash-active">0</span>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <h3 data-ar="إجمالي المبيعات" data-en="Revenue">إجمالي المبيعات</h3>
+                    <span class="stat-number" id="dash-revenue">0</span>
+                </div>
+            </div>
+            
+            <div class="section-card">
+                <h3 data-ar="📈 النشاطrecent" data-en="📈 Recent Activity">📈 النشاط recent</h3>
+                <div id="recent-activity" class="activity-timeline"></div>
+            </div>
+        </div>
+
+        <!-- تبويب الأعضاء -->
+        <div id="members-tab" class="admin-tab-content">
+            <div class="stats-cards">
+                <div class="stat-card">
+                    <div class="stat-icon">⏳</div>
+                    <h3 data-ar="طلبات معلقة" data-en="Pending Requests">طلبات معلقة</h3>
+                    <span class="stat-number" id="pending-count">0</span>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✅</div>
+                    <h3 data-ar="أعضاء نشطين" data-en="Active Members">أعضاء نشطين</h3>
+                    <span class="stat-number" id="active-count">0</span>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="⏳ طلبات الانضمام المعلقة" data-en="⏳ Pending Requests">⏳ طلبات الانضمام المعلقة</h3>
+                <div id="pending-members"></div>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="✅ الأعضاء المعتمدين" data-en="✅ Approved Members">✅ الأعضاء المعتمدين</h3>
+                <div id="approved-members"></div>
+            </div>
+        </div>
+
+        <!-- تبويب المزاد -->
+        <div id="auction-tab" class="admin-tab-content" style="display:none;">
+            <div class="section-card">
+<h3 data-ar="📋 المزاد الحالي" data-en="📋 Current Auction">📋 المزاد الحالي</h3>
+                <div id="current-auction-info"></div>
+                <div class="control-buttons" style="margin-top:1rem;">
+                    <button onclick="startAuction()" class="btn-success" data-ar="▶ بدء" data-en="▶ Start">▶ بدء</button>
+                    <button onclick="extendAuction()" class="btn-info" data-ar="⏰ تمديد" data-en="⏰ Extend">⏰ تمديد</button>
+                    <button onclick="pauseAuction()" class="btn-warning" data-ar="⏸ إيقاف" data-en="⏸ Pause">⏸ إيقاف</button>
+                    <button onclick="endAuction()" class="btn-danger" data-ar="⏹ إنهاء" data-en="⏹ End">⏹ إنهاء</button>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="➕ إنشاء مزاد" data-en="➕ Create Auction">➕ إنشاء مزاد</h3>
+                <form onsubmit="createAuction(event)" class="auction-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label data-ar="اسم العنصر" data-en="Item Name">اسم العنصر</label>
+                            <input type="text" id="auction-item-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="السعر الابتدائي" data-en="Start Price">السعر الابتدائي</label>
+                            <input type="number" id="auction-start-price" required min="0">
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="مبلغ الزيادة" data-en="Bid Increment">مبلغ الزيادة</label>
+                            <input type="number" id="auction-increment" value="100">
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="المدة (دقائق)" data-en="Duration (min)">المدة</label>
+                            <input type="number" id="auction-duration" value="60">
+                        </div>
+                        <div class="form-group" style="grid-column:1/-1;">
+                            <label data-ar="الوصف" data-en="Description">الوصف</label>
+                            <textarea id="auction-item-desc" rows="2"></textarea>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary" data-ar="إنشاء" data-en="Create">إنشاء</button>
+                </form>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="📜 سجل المزادات" data-en="📜 History">📜 سجل المزادات</h3>
+                <div id="auction-history" class="history-list"></div>
+            </div>
+        </div>
+
+        <!-- تبويب الرسائل -->
+        <div id="messages-tab" class="admin-tab-content" style="display:none;">
+            <div class="section-card">
+                <h3 data-ar="💬 الرسائل" data-en="💬 Messages">💬 الرسائل</h3>
+                <div id="admin-messages-list" class="messages-list"></div>
+            </div>
+            <div class="section-card">
+                <h3 data-ar="📢 إرسال جماعي" data-en="📢 Broadcast">📢 إرسال جماعي</h3>
+                <form onsubmit="sendBroadcast(event)">
+                    <textarea id="broadcast-msg" rows="2" required placeholder="الرسالة..."></textarea>
+                    <button type="submit" class="btn-primary" data-ar="إرسال" data-en="Send">إرسال</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- تبويب الإعدادات -->
+        <div id="settings-tab" class="admin-tab-content" style="display:none;">
+            <div class="section-card">
+                <h3 data-ar="⚙️ الإعدادات" data-en="⚙️ Settings">⚙️ الإعدادات</h3>
+                <form onsubmit="saveSettings(event)">
+                    <div class="form-group">
+                        <label data-ar="اسم الموقع" data-en="Site Name">اسم الموقع</label>
+                        <input type="text" id="setting-site-name" value="ALNISR">
+                    </div>
+                    <div class="form-group">
+                        <label data-ar="رسالة الترحيب" data-en="Welcome Msg">رسالة الترحيب</label>
+                        <input type="text" id="setting-welcome-msg">
+                    </div>
+                    <button type="submit" class="btn-primary" data-ar="حفظ" data-en="Save">حفظ</button>
+                </form>
+            </div>
+            <div class="section-card">
+                <h3 data-ar="🔧 الأدوات" data-en="🔧 Tools">🔧 الأدوات</h3>
+                <div class="control-buttons">
+                    <button onclick="exportData()" class="btn-secondary">📤</button>
+                    <button onclick="backupDatabase()" class="btn-info">💾</button>
+                    <button onclick="clearAllData()" class="btn-danger">🗑️</button>
+                </div>
+            </div>
+        </div>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="➕ إنشاء مزاد جديد" data-en="➕ Create New Auction">➕ إنشاء مزاد جديد</h3>
+                <form onsubmit="createAuction(event)" class="auction-form">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label data-ar="اسم العنصر" data-en="Item Name">اسم العنصر</label>
+                            <input type="text" id="auction-item-name" required>
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="السعر الابتدائي (د.إ)" data-en="Starting Price (AED)">السعر الابتدائي (د.إ)</label>
+                            <input type="number" id="auction-start-price" required min="0">
+                        </div>
+                        <div class="form-group" style="grid-column:1/-1;">
+                            <label data-ar="الوصف" data-en="Description">الوصف</label>
+                            <textarea id="auction-item-desc" rows="3"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label data-ar="التاريخ والوقت" data-en="Date & Time">التاريخ والوقت</label>
+                            <input type="datetime-local" id="auction-date" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary" data-ar="إنشاء المزاد" data-en="Create Auction">إنشاء المزاد</button>
+                </form>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="📜 سجل المزادات" data-en="📜 Auction History">📜 سجل المزادات</h3>
+                <div id="auction-history" class="history-list"></div>
+            </div>
+        </div>
+
+        <!-- تبويب الإحصائيات -->
+        <div id="statistics-tab" class="admin-tab-content" style="display:none;">
+            <div class="stats-cards">
+                <div class="stat-card">
+                    <div class="stat-icon">🎯</div>
+                    <h3 data-ar="إجمالي المزادات" data-en="Total Auctions">إجمالي المزادات</h3>
+                    <span class="stat-number" id="total-auctions">0</span>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <h3 data-ar="إجمالي المزايدات" data-en="Total Bids">إجمالي المزايدات</h3>
+                    <span class="stat-number" id="total-bids">0</span>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <h3 data-ar="إجمالي الأعضاء" data-en="Total Members">إجمالي الأعضاء</h3>
+                    <span class="stat-number" id="total-members">0</span>
+                </div>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="🏆 أنشط المزايدين" data-en="🏆 Top Bidders">🏆 أنشط المزايدين</h3>
+                <div id="top-bidders-list" class="bidders-list"></div>
+            </div>
+
+            <div class="section-card">
+                <h3 data-ar="📋 سجل النشاطات" data-en="📋 Activity Log">📋 سجل النشاطات</h3>
+                <div id="activity-log" class="log-list"></div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-inner">
+            <div class="footer-logo">
+                <img src="alnisr_auction.jpeg" alt="ALNISR" class="footer-logo-img">
+                <span>ALNISR ALASWAD</span>
+            </div>
+            <div class="footer-links">
+                <a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a>
+                <a href="auction.html" data-ar="المزاد" data-en="Auction">المزاد</a>
+                <a href="login.html" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a>
+            </div>
+            <p class="footer-copy" data-ar="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة" data-en="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. All Rights Reserved">© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

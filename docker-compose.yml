@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      MONGO_URI: mongodb://mongo:27017/alnisr
+      PORT: 3000
+      NODE_ENV: development
+    depends_on:
+      - mongo
+    networks:
+      - alnisr-network
+
+  mongo:
+    image: mongo:6-alpine
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - alnisr-network
+
+volumes:
+  mongo-data:
+
+networks:
+  alnisr-network:
+    driver: bridge
