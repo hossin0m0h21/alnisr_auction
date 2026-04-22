@@ -911,55 +911,53 @@ function startAdminLiveRefresh() {
 }
 
 async function refreshAdminCurrentAuction() {
-    const all = await dbGetAll('auctions');
-    const cur = all.find(a=>a.status==='active')||all.find(a=>a.status==='paused');
-    if (!cur) return;
-    const info = document.getElementById('current-auction-info');
-    if (!info) return;
-    const cp = cur.currentPrice || cur.startPrice || 0;
-    const sl = { active:currentLang==='ar'?'نشط':'Active', paused:currentLang==='ar'?'متوقف':'Paused' };
-    const sc = { active:'var(--success-color)', paused:'var(--warning-color)' };
-    info.innerHTML = `<div class="current-auction-card">
-        <div class="ca-name">${cur.itemName}</div>
-        <div class="ca-details">
-            <span>${currentLang==='ar'?'الحالة:':'Status:'} <b style="color:${sc[cur.status]}">${sl[cur.status]}</b></span>
-            <span>${currentLang==='ar'?'السعر:':'Price:'} <b class="live-price-val-sm">${cp.toLocaleString()} ${currentLang==='ar'?'د.إ':'AED'}</b></span>
-            <span>${currentLang==='ar'?'أعلى مزايد:':'Top Bidder:'} <b>👑 ${cur.highestBidder||(currentLang==='ar'?'لا يوجد':'None')}</b></span>
-        </div>
-    </div>`;
-    /* تحديث سجل المزايدات في لوحة المشرف */
-    await loadAdminBidHistory(cur);
+    try {
+        const res = await fetch(`${getApiUrl()}/auctions`);
+        const auctions = await res.json();
+        const cur = auctions.find(a => a.status === 'active') || auctions[0];
+        if (!cur) return;
+        window._currentAuction = cur;
+        const info = document.getElementById('current-auction-info');
+        if (!info) return;
+        const cp = cur.currentPrice || cur.startPrice || 0;
+        info.innerHTML = `<div class="current-auction-card">
+            <div class="ca-name">${cur.itemName}</div>
+            <div class="ca-details">
+                <span>السعر: <b>${cp.toLocaleString()} د.إ</b></span>
+                <span>أعلى مزايد: <b>👑 ${cur.highestBidder || 'لا يوجد'}</b></span>
+            </div>
+        </div>`;
+        await loadAdminBidHistory(cur._id || cur.id);
+    } catch(e) { console.error(e); }
 }
 
-async function loadAdminBidHistory(auction) {
+async function loadAdminBidHistory(auctionId) {
     const div = document.getElementById('admin-bid-history');
-    if (!div || !auction) return;
-    const all = await dbGetAll('bids');
-    const bids = all.filter(b=>b.auctionId===auction.id).sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
-    div.innerHTML = bids.length===0
-        ? `<p class="empty-msg">${currentLang==='ar'?'لا توجد مزايدات':'No bids'}</p>`
-        : bids.map((b,i)=>`
+    if (!div) return;
+    try {
+        const res = await fetch(`${getApiUrl()}/bids/${auctionId}`);
+        const bids = await res.json();
+        div.innerHTML = bids.length ? bids.map((b,i) => `
             <div class="history-item ${i===0?'top-bid':''}">
-                <div class="bid-rank">${i===0?'🥇':i===1?'🥈':i===2?'🥉':'#'+(i+1)}</div>
-                <div class="bid-info">
-                    <strong>${b.userName}</strong>
-                    <small>${new Date(b.timestamp).toLocaleString(currentLang==='ar'?'ar-AE':'en-US')}</small>
-                </div>
-                <div class="bid-amount-display">${b.amount.toLocaleString()} ${currentLang==='ar'?'د.إ':'AED'}</div>
-            </div>`).join('');
+                <div>${i===0?'🥇':i===1?'🥈':'#'+(i+1)}</div>
+                <div><strong>${b.userName}</strong><small>${new Date(b.timestamp).toLocaleString()}</small></div>
+                <div>${b.amount?.toLocaleString()} د.إ</div>
+            </div>`).join('') : '<p class="empty-msg">لا توجد مزايدات</p>';
+    } catch(e) { console.error(e); }
 }
 
 /* ===== الأعضاء ===== */
 async function loadMembersData() {
-    const all = await dbGetAll('users');
-    const pending  = all.filter(u=>u.status==='pending');
-    const approved = all.filter(u=>u.status==='approved');
-    const pc = document.getElementById('pending-count');
-    const ac = document.getElementById('active-count');
-    if (pc) pc.textContent = pending.length;
-    if (ac) ac.textContent = approved.length;
-    renderPendingMembers(pending);
-    renderApprovedMembers(approved);
+    try {
+        const res = await fetch(`${getApiUrl()}/admin/users`);
+        const users = await res.json();
+        const pending = users.filter(u => u.status === 'pending');
+        const approved = users.filter(u => u.status === 'approved');
+        if (document.getElementById('pending-count')) document.getElementById('pending-count').textContent = pending.length;
+        if (document.getElementById('active-count')) document.getElementById('active-count').textContent = approved.length;
+        renderPendingMembers(pending);
+        renderApprovedMembers(approved);
+    } catch(e) { console.error(e); }
 }
 
 function renderPendingMembers(list) {
@@ -1027,13 +1025,35 @@ async function viewMemberBids(userId) {
 }
 
 async function approveUser(id) {
-    const u = await dbGet('users', id);
-    if (!u) return;
-    u.status = 'approved';
-    await dbPut('users', u);
-    await addNotification(id, currentLang==='ar'?'✅ تمت الموافقة على حسابك! يمكنك الآن المشاركة في المزاد.':'✅ Account approved! You can now join auctions.', 'success');
-    showToast(currentLang==='ar'?'تم قبول العضو':'Member approved','success');
-    await loadMembersData();
+    try {
+        await fetch(`${getApiUrl()}/admin/approve-user/${id}`, { method: 'POST' });
+        showToast(currentLang==='ar'?'✅ تم قبول العضو':'✅ Member approved','success');
+        await loadMembersData();
+    } catch(e) { console.error(e); }
+}
+
+async function rejectUser(id) {
+    showModal(
+        currentLang==='ar'?'رفض الطلب':'Reject',
+        `<p>${currentLang==='ar'?'هل تريد رفض وحذف هذا الطلب؟':'Delete this request?'}</p>`,
+        async() => { 
+            await fetch(`${getApiUrl()}/users/${id}`, { method: 'DELETE' });
+            showToast(currentLang==='ar'?'تم الرفض':'Rejected','info');
+            await loadMembersData();
+        }
+    );
+}
+
+async function deleteUser(id) {
+    showModal(
+        currentLang==='ar'?'حذف العضو':'Delete Member',
+        `<p>${currentLang==='ar'?'هل أنت متأكد؟':'Are you sure?'}</p>`,
+        async() => { 
+            await fetch(`${getApiUrl()}/users/${id}`, { method: 'DELETE' });
+            showToast(currentLang==='ar'?'تم الحذف':'Deleted','info');
+            await loadMembersData();
+        }
+    );
 }
 
 async function rejectUser(id) {
