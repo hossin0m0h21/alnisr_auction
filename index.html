@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ALNISR - مزاد الطيور والحيوانات الأليفة</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo-link">
+                <img src="alnisr_auction.jpeg" alt="ALNISR Logo" class="logo-img">
+                <span class="logo-text">ALNISR</span>
+            </a>
+            <ul class="nav-links">
+                <li><a href="index.html" class="active" data-ar="الرئيسية" data-en="Home">الرئيسية</a></li>
+                <li><a href="auction.html" data-ar="المزاد المباشر" data-en="Live Auction">المزاد المباشر</a></li>
+                <li><a href="profile.html" data-ar="الملف الشخصي" data-en="Profile">الملف الشخصي</a></li>
+                <li><a href="login.html" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a></li>
+            </ul>
+            <div class="nav-actions">
+                <button class="lang-toggle" onclick="toggleLanguage()">EN</button>
+            </div>
+        </div>
+    </nav>
+
+    <header class="hero">
+        <div class="hero-overlay"></div>
+        <div class="container hero-content">
+            <div class="hero-badge" data-ar="🔴 بث مباشر" data-en="🔴 Live Now">🔴 بث مباشر</div>
+            <h1 data-ar="🦅 ALNISR ALASWAD" data-en="🦅 ALNISR ALASWAD">🦅 ALNISR ALASWAD</h1>
+            <p class="hero-sub" data-ar="BIRDS & PETS TR LLCSP" data-en="BIRDS & PETS TR LLCSP">BIRDS & PETS TR LLCSP</p>
+            <p class="hero-desc" data-ar="✨ مزاد الطيور والحيوانات الأليفة الأول في المنطقة ✨" data-en="✨ The Premier Birds & Pets Auction in the Region ✨">✨ مزاد الطيور والحيوانات الأليفة الأول في المنطقة ✨</p>
+            <div class="hero-btns">
+                <a href="auction.html" class="btn-hero-primary" data-ar="🎯 دخول المزاد المباشر" data-en="🎯 Enter Live Auction">🎯 دخول المزاد المباشر</a>
+                <a href="login.html" class="btn-hero-secondary" data-ar="👤 إنشاء حساب" data-en="👤 Create Account">👤 إنشاء حساب</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- بطاقات الإحصاء السريعة -->
+    <section class="quick-stats">
+        <div class="container">
+            <div class="quick-stats-grid">
+                <div class="quick-stat-card">
+                    <span class="qs-icon">🎯</span>
+                    <div>
+                        <div class="qs-num" id="qs-auctions">0</div>
+                        <div class="qs-label" data-ar="مزاد منجز" data-en="Auctions Done">مزاد منجز</div>
+                    </div>
+                </div>
+                <div class="quick-stat-card">
+                    <span class="qs-icon">👥</span>
+                    <div>
+                        <div class="qs-num" id="qs-members">0</div>
+                        <div class="qs-label" data-ar="عضو نشط" data-en="Active Members">عضو نشط</div>
+                    </div>
+                </div>
+                <div class="quick-stat-card">
+                    <span class="qs-icon">💰</span>
+                    <div>
+                        <div class="qs-num" id="qs-bids">0</div>
+                        <div class="qs-label" data-ar="مزايدة" data-en="Total Bids">مزايدة</div>
+                    </div>
+                </div>
+                <div class="quick-stat-card live-card" id="live-stat">
+                    <span class="qs-icon">🟢</span>
+                    <div>
+                        <div class="qs-num" id="qs-live-status" data-ar="لا يوجد" data-en="None">لا يوجد</div>
+                        <div class="qs-label" data-ar="المزاد الآن" data-en="Current Auction">المزاد الآن</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <main class="container main-content">
+        <!-- المزاد الحالي -->
+        <section class="live-auction-section" id="live-auction-section" style="display:none;">
+            <div class="section-title">
+                <span class="live-dot"></span>
+                <h2 data-ar="المزاد الجاري الآن" data-en="Auction Live Now">المزاد الجاري الآن</h2>
+            </div>
+            <div class="live-auction-banner" id="live-auction-banner">
+            </div>
+        </section>
+
+        <div class="main-grid">
+            <!-- الإعلانات -->
+            <section class="announcements-section">
+                <div class="section-title">
+                    <h2 data-ar="📢 الإعلانات والأخبار" data-en="📢 Announcements & News">📢 الإعلانات والأخبار</h2>
+                </div>
+
+                <div class="announcement-card featured">
+                    <div class="ann-icon">📩</div>
+                    <div class="ann-body">
+                        <h3 data-ar="تم فتح استقبال طلبات المزايدة" data-en="Bidding Submissions Now Open">تم فتح استقبال طلبات المزايدة</h3>
+                        <p data-ar="يمكنكم الآن إرسال بيانات الحلال للمشاركة في المزاد اليومي عبر الواتساب أو الموقع." data-en="You can now submit your animal listings to join our daily auction via WhatsApp or the website.">يمكنكم الآن إرسال بيانات الحلال للمشاركة في المزاد اليومي عبر الواتساب أو الموقع.</p>
+                    </div>
+                </div>
+
+                <div class="announcement-card">
+                    <div class="ann-icon">🐦</div>
+                    <div class="ann-body">
+                        <h3 data-ar="عرض الحيوانات المتوفرة" data-en="Available Animals">عرض الحيوانات المتوفرة</h3>
+                        <p data-ar="تصفح أحدث العروض والحلال المتوفر مباشرة عبر موقعنا." data-en="Browse the latest available animals directly on our website.">تصفح أحدث العروض والحلال المتوفر مباشرة عبر موقعنا.</p>
+                    </div>
+                </div>
+
+                <div class="announcement-card">
+                    <div class="ann-icon">👥</div>
+                    <div class="ann-body">
+                        <h3 data-ar="انضم إلى مجتمعنا" data-en="Join Our Community">انضم إلى مجتمعنا</h3>
+                        <p data-ar="انضم لقروب الواتساب وكن أول من يشاهد المزادات والعروض اليومية." data-en="Join our WhatsApp group and be the first to see daily auctions & offers.">انضم لقروب الواتساب وكن أول من يشاهد المزادات والعروض اليومية.</p>
+                        <a href="https://whatsapp.com/channel/0029Vb7gABwFCCocdDY5oU2k" class="whatsapp-btn" target="_blank" rel="noopener noreferrer">
+                            <span data-ar="📲 انضم للواتساب" data-en="📲 Join WhatsApp">📲 انضم للواتساب</span>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- سجل آخر المزادات -->
+                <div class="section-title" style="margin-top:2rem;">
+                    <h2 data-ar="🏆 آخر المزادات" data-en="🏆 Recent Auctions">🏆 آخر المزادات</h2>
+                </div>
+                <div id="recent-auctions" class="recent-auctions-list">
+                    <p class="empty-msg" data-ar="لا توجد مزادات بعد" data-en="No auctions yet">لا توجد مزادات بعد</p>
+                </div>
+            </section>
+
+            <!-- الشريط الجانبي -->
+            <aside class="sidebar">
+                <div class="sidebar-card cta-card">
+                    <h3 data-ar="🚀 ابدأ الآن" data-en="🚀 Start Now">🚀 ابدأ الآن</h3>
+                    <p data-ar="سجّل وشارك في مزاداتنا اليومية للطيور والحيوانات الأليفة" data-en="Register and join our daily bird & pet auctions">سجّل وشارك في مزاداتنا اليومية للطيور والحيوانات الأليفة</p>
+                    <a href="login.html" class="btn-primary" style="display:block;text-align:center;margin-top:1rem;" data-ar="إنشاء حساب مجاني" data-en="Create Free Account">إنشاء حساب مجاني</a>
+                    <a href="auction.html" class="btn-secondary" style="display:block;text-align:center;margin-top:0.75rem;" data-ar="دخول المزاد" data-en="Enter Auction">دخول المزاد</a>
+                </div>
+
+                <div class="sidebar-card contact-card">
+                    <h3 data-ar="📞 تواصل معنا" data-en="📞 Contact Us">📞 تواصل معنا</h3>
+                    <a href="tel:+971544358897" class="contact-item">
+                        <span>📱</span>
+                        <span>+971544358897</span>
+                    </a>
+                    <a href="https://whatsapp.com/channel/0029Vb7gABwFCCocdDY5oU2k" target="_blank" rel="noopener noreferrer" class="contact-item whatsapp-contact">
+                        <span>💬</span>
+                        <span data-ar="واتساب - انضم الآن" data-en="WhatsApp - Join Now">واتساب - انضم الآن</span>
+                    </a>
+                    <a href="https://alnisrauc-iohxoqzz.manus.space" target="_blank" rel="noopener noreferrer" class="contact-item">
+                        <span>🌐</span>
+                        <span>alnisrauc-iohxoqzz.manus.space</span>
+                    </a>
+                </div>
+
+                <div class="sidebar-card notes-card">
+                    <h3 data-ar="📌 ملاحظات مهمة" data-en="📌 Important Notes">📌 ملاحظات مهمة</h3>
+                    <ul class="notes-list">
+                        <li data-ar="يجب معاينة الحلال قبل الشراء" data-en="Buyers must inspect before purchase">يجب معاينة الحلال قبل الشراء</li>
+                        <li data-ar="نحن جهة عرض فقط" data-en="We are only the listing platform">نحن جهة عرض فقط</li>
+                        <li data-ar="لا نتحمل المسؤولية بعد ربط البائع بالمشتري" data-en="Not responsible after connecting buyers & sellers">لا نتحمل المسؤولية بعد ربط البائع بالمشتري</li>
+                    </ul>
+                </div>
+            </aside>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container footer-inner">
+            <div class="footer-logo">
+                <img src="alnisr_auction.jpeg" alt="ALNISR" class="footer-logo-img">
+                <span>ALNISR ALASWAD</span>
+            </div>
+            <div class="footer-links">
+                <a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a>
+                <a href="auction.html" data-ar="المزاد" data-en="Auction">المزاد</a>
+                <a href="login.html" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a>
+                <a href="admin.html" data-ar="المشرف" data-en="Admin">المشرف</a>
+            </div>
+            <p class="footer-copy" data-ar="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة" data-en="© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. All Rights Reserved">© 2026 ALNISR ALASWAD BIRDS & PETS TR LLCSP. جميع الحقوق محفوظة</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+    <script>
+    window.addEventListener('DOMContentLoaded', async () => {
+        await new Promise(r => {
+            const check = setInterval(() => {
+                if (window.db !== undefined || typeof initDB === 'function') {
+                    clearInterval(check);
+                    r();
+                }
+            }, 50);
+        });
+
+        async function loadHomeData() {
+            try {
+                const allAuctions = await dbGetAll('auctions');
+                const allUsers    = await dbGetAll('users');
+                const allBids     = await dbGetAll('bids');
+
+                document.getElementById('qs-auctions').textContent = allAuctions.filter(a => a.status === 'ended').length;
+                document.getElementById('qs-members').textContent  = allUsers.filter(u => u.status === 'approved').length;
+                document.getElementById('qs-bids').textContent     = allBids.length;
+
+                const liveAuction = allAuctions.find(a => a.status === 'active');
+                const lsEl = document.getElementById('qs-live-status');
+                const liveSection = document.getElementById('live-auction-section');
+                const liveBanner  = document.getElementById('live-auction-banner');
+
+                if (liveAuction) {
+                    const lang = localStorage.getItem('alnisrLang') || 'ar';
+                    lsEl.textContent = liveAuction.itemName;
+                    liveSection.style.display = 'block';
+                    const price = liveAuction.currentPrice || liveAuction.startPrice || 0;
+                    liveBanner.innerHTML = `
+                        <div class="live-banner-content">
+                            <div class="live-banner-info">
+                                <div class="live-banner-title">${liveAuction.itemName}</div>
+                                <div class="live-banner-desc">${liveAuction.description || ''}</div>
+                            </div>
+                            <div class="live-banner-price">
+                                <div class="live-price-label">${lang === 'ar' ? 'السعر الحالي' : 'Current Price'}</div>
+                                <div class="live-price-val">${price.toLocaleString()} ${lang === 'ar' ? 'د.إ' : 'AED'}</div>
+                                <div class="live-bidder">👑 ${liveAuction.highestBidder || (lang === 'ar' ? 'لا يوجد بعد' : 'No bids yet')}</div>
+                                <a href="auction.html" class="btn-hero-primary" style="margin-top:1rem;display:inline-block;" data-ar="شارك الآن" data-en="Join Now">${lang === 'ar' ? 'شارك الآن' : 'Join Now'}</a>
+                            </div>
+                        </div>`;
+                } else {
+                    lsEl.setAttribute('data-ar', 'لا يوجد');
+                    lsEl.setAttribute('data-en', 'None');
+                }
+
+                const sorted = [...allAuctions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
+                const lang = localStorage.getItem('alnisrLang') || 'ar';
+                const statusLabel = { active: lang === 'ar' ? 'نشط' : 'Active', ended: lang === 'ar' ? 'منتهي' : 'Ended', paused: lang === 'ar' ? 'متوقف' : 'Paused', pending: lang === 'ar' ? 'قادم' : 'Upcoming' };
+                const statusColor = { active: 'var(--success-color)', ended: '#888', paused: 'var(--warning-color)', pending: 'var(--accent-color)' };
+
+                const recentDiv = document.getElementById('recent-auctions');
+                if (sorted.length === 0) {
+                    recentDiv.innerHTML = `<p class="empty-msg">${lang === 'ar' ? 'لا توجد مزادات بعد' : 'No auctions yet'}</p>`;
+                } else {
+                    recentDiv.innerHTML = sorted.map(a => {
+                        const auctionBids = allBids.filter(b => b.auctionId === a.id);
+                        return `
+                        <div class="recent-auction-item">
+                            <div class="ra-icon">🐦</div>
+                            <div class="ra-body">
+                                <div class="ra-name">${a.itemName}</div>
+                                <div class="ra-meta">
+                                    <span>${lang === 'ar' ? 'السعر:' : 'Price:'} <b>${(a.currentPrice || a.startPrice || 0).toLocaleString()} ${lang === 'ar' ? 'د.إ' : 'AED'}</b></span>
+                                    <span>${lang === 'ar' ? 'المزايدات:' : 'Bids:'} <b>${auctionBids.length}</b></span>
+                                </div>
+                                ${a.highestBidder ? `<div class="ra-winner">👑 ${a.highestBidder}</div>` : ''}
+                            </div>
+                            <span class="status-pill" style="background:${statusColor[a.status]}">${statusLabel[a.status]}</span>
+                        </div>`;
+                    }).join('');
+                }
+            } catch(e) { /* DB not ready */ }
+        }
+
+        await loadHomeData();
+        setInterval(loadHomeData, 5000);
+    });
+    </script>
+</body>
+</html>

@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>الملف الشخصي - ALNISR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        .profile-header {
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            color: white;
+            padding: 3rem 0;
+            margin-bottom: 3rem;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .profile-avatar {
+            width: 100px;
+            height: 100px;
+            border-radius: 50%;
+            background: var(--secondary-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3rem;
+            font-weight: bold;
+            margin: 0 auto 1rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+
+        .profile-name {
+            font-size: 2rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .profile-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .profile-info-item {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border-right: 4px solid var(--secondary-color);
+            box-shadow: var(--shadow);
+        }
+
+        .profile-info-label {
+            color: #666;
+            font-size: 0.9rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .profile-info-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: var(--primary-color);
+        }
+
+        .profile-section {
+            margin-bottom: 3rem;
+        }
+
+        .profile-section-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+            color: var(--primary-color);
+            border-bottom: 3px solid var(--secondary-color);
+            padding-bottom: 1rem;
+        }
+
+        .profile-auction-card {
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: var(--shadow);
+            margin-bottom: 1.5rem;
+            transition: transform 0.3s, box-shadow 0.3s;
+            display: grid;
+            grid-template-columns: 200px 1fr;
+        }
+
+        .profile-auction-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+        }
+
+        .profile-auction-card.winner-card {
+            border-left: 5px solid var(--secondary-color);
+        }
+
+        .profile-auction-media {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+        }
+
+        .profile-auction-media-placeholder {
+            width: 100%;
+            height: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, var(--primary-color), var(--accent-color));
+            color: white;
+            font-size: 3rem;
+        }
+
+        .pac-body {
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .pac-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 1rem;
+        }
+
+        .pac-header h3 {
+            margin: 0;
+            color: var(--primary-color);
+            flex: 1;
+        }
+
+        .status-pill {
+            background: var(--secondary-color);
+            color: white;
+            padding: 0.4rem 1rem;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .pac-details {
+            margin-bottom: 1rem;
+        }
+
+        .pac-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.8rem;
+            font-size: 0.95rem;
+        }
+
+        .pac-row span {
+            color: #666;
+        }
+
+        .pac-row strong {
+            color: var(--primary-color);
+            font-weight: 600;
+        }
+
+        .profile-win-tag {
+            padding: 0.8rem;
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .profile-win-tag.approved {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .profile-win-tag.rejected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .profile-win-tag.pending-approval {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .profile-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 2rem;
+        }
+
+        .empty-msg {
+            text-align: center;
+            padding: 2rem;
+            color: #999;
+            font-size: 1.1rem;
+        }
+
+        @media (max-width: 768px) {
+            .profile-auction-card {
+                grid-template-columns: 1fr;
+            }
+
+            .profile-auction-media,
+            .profile-auction-media-placeholder {
+                height: 150px;
+            }
+
+            .profile-name {
+                font-size: 1.5rem;
+            }
+
+            .profile-info-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <a href="index.html" class="logo-link">
+                <img src="alnisr_auction.jpeg" alt="ALNISR Logo" class="logo-img">
+                <span class="logo-text">ALNISR</span>
+            </a>
+            <ul class="nav-links">
+<li><a href="index.html" data-ar="الرئيسية" data-en="Home">الرئيسية</a></li>
+                <li><a href="auction.html" data-ar="المزاد المباشر" data-en="Live Auction">المزاد المباشر</a></li>
+                <li><a href="chat.html" data-ar="الدردشة" data-en="Chat">الدردشة</a></li>
+                <li><a href="profile.html" class="active" data-ar="الملف الشخصي" data-en="Profile">الملف الشخصي</a></li>
+                <li><a href="login.html" data-ar="تسجيل الدخول" data-en="Login">تسجيل الدخول</a></li>
+            </ul>
+            <div class="nav-actions">
+                <button class="lang-toggle" onclick="toggleLanguage()">EN</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="profile-header">
+            <div class="profile-avatar">
+                <span id="profile-avatar-letter">👤</span>
+            </div>
+            <h1 class="profile-name" id="profile-name">اسم العضو</h1>
+            <p id="profile-phone" style="margin-bottom: 0.5rem; opacity: 0.9;"></p>
+            <p id="profile-id" style="margin-bottom: 0.5rem; opacity: 0.9;"></p>
+            <p id="profile-joined" style="opacity: 0.85; font-size: 0.9rem;"></p>
+        </div>
+
+        <div class="profile-info-grid">
+            <div class="profile-info-item">
+                <div class="profile-info-label" data-ar="إجمالي المزايدات" data-en="Total Bids">إجمالي المزايدات</div>
+                <div class="profile-info-value" id="profile-total-bids">0</div>
+            </div>
+            <div class="profile-info-item">
+                <div class="profile-info-label" data-ar="حالة الحساب" data-en="Account Status">حالة الحساب</div>
+                <div class="profile-info-value" style="color: var(--success-color);" data-ar="نشط ✓" data-en="Active ✓">نشط ✓</div>
+            </div>
+            <div class="profile-info-item">
+                <div class="profile-info-label" data-ar="آخر نشاط" data-en="Last Activity">آخر نشاط</div>
+                <div class="profile-info-value" style="color: var(--accent-color);" data-ar="اليوم" data-en="Today">اليوم</div>
+            </div>
+        </div>
+
+        <div class="profile-section">
+            <h2 class="profile-section-title" data-ar="🎯 مزايداتي" data-en="🎯 My Bids">🎯 مزايداتي</h2>
+            <div id="profile-auctions-list">
+                <p class="empty-msg" data-ar="لم تزايد على أي شيء بعد" data-en="No bids yet">لم تزايد على أي شيء بعد</p>
+            </div>
+        </div>
+
+        <div class="profile-actions">
+            <a href="auction.html" class="btn-primary" data-ar="العودة للمزاد" data-en="Back to Auction">العودة للمزاد</a>
+            <button onclick="logout()" class="btn-secondary" data-ar="تسجيل الخروج" data-en="Logout">تسجيل الخروج</button>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
