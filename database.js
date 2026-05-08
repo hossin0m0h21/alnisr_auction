@@ -74,12 +74,80 @@ const messageSchema = new mongoose.Schema({
     createdAt: { type: Date, default: Date.now }
 });
 
+// 📱 نموذج التحقق بـ OTP
+const otpSchema = new mongoose.Schema({
+    phone: { type: String, required: true, index: true },
+    email: String,
+    otp: { type: String, required: true },
+    verified: { type: Boolean, default: false },
+    attempts: { type: Number, default: 0 },
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 10 * 60 * 1000) }, // 10 دقائق
+    createdAt: { type: Date, default: Date.now, index: true }
+});
+
+// 💳 نموذج المدفوعات
+const paymentSchema = new mongoose.Schema({
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    auctionId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    winnerCode: { type: String, required: true, unique: true, index: true },
+    amount: { type: Number, required: true },
+    status: { type: String, enum: ['pending', 'completed', 'failed', 'refunded'], default: 'pending', index: true },
+    paymentMethod: { type: String, enum: ['stripe', 'paypal', 'applePay', 'googlePay', 'bank'], default: 'stripe' },
+    transactionId: String,
+    stripePaymentIntentId: String,
+    notes: String,
+    paidAt: Date,
+    expiresAt: { type: Date, default: () => new Date(Date.now() + 48 * 60 * 60 * 1000) }, // 48 ساعة
+    createdAt: { type: Date, default: Date.now, index: true }
+});
+
+// 🏆 نموذج الفائزين والنتائج
+const winnerSchema = new mongoose.Schema({
+    auctionId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    winnerPhone: { type: String, required: true },
+    winnerName: { type: String, required: true },
+    winnerEmail: String,
+    finalBidAmount: { type: Number, required: true },
+    winnerCode: { type: String, required: true, unique: true },
+    notificationSent: { type: Boolean, default: false },
+    paymentStatus: { type: String, default: 'pending' },
+    claimedAt: Date,
+    createdAt: { type: Date, default: Date.now, index: true }
+});
+
+// 📊 نموذج السجل/الأرشيف
+const auditLogSchema = new mongoose.Schema({
+    action: { type: String, required: true },
+    userId: mongoose.Schema.Types.ObjectId,
+    auctionId: mongoose.Schema.Types.ObjectId,
+    details: mongoose.Schema.Types.Mixed,
+    ipAddress: String,
+    userAgent: String,
+    createdAt: { type: Date, default: Date.now, index: true }
+});
+
+// ⭐ نموذج التقييمات والتعليقات
+const reviewSchema = new mongoose.Schema({
+    auctionId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    sellerId: mongoose.Schema.Types.ObjectId,
+    buyerId: { type: mongoose.Schema.Types.ObjectId, required: true, index: true },
+    rating: { type: Number, min: 1, max: 5, required: true },
+    comment: String,
+    createdAt: { type: Date, default: Date.now, index: true }
+});
+
 const Message = mongoose.model('Message', messageSchema);
 const User = mongoose.model('User', userSchema);
 const Auction = mongoose.model('Auction', auctionSchema);
 const Bid = mongoose.model('Bid', bidSchema);
 const Notification = mongoose.model('Notification', notificationSchema);
 const Settings = mongoose.model('Settings', settingsSchema);
+const OTP = mongoose.model('OTP', otpSchema);
+const Payment = mongoose.model('Payment', paymentSchema);
+const Winner = mongoose.model('Winner', winnerSchema);
+const AuditLog = mongoose.model('AuditLog', auditLogSchema);
+const Review = mongoose.model('Review', reviewSchema);
 
 // ===== دوال قاعدة البيانات الأساسية =====
 export async function initDB() {
@@ -181,7 +249,93 @@ export const createMessage = (data) => {
 };
 export const updateMessage = (id, data) => Message.findByIdAndUpdate(id, data, { new: true });
 
-// ===== تصدير النماذج =====
-export { User, Auction, Bid, Notification, Settings, Message };
+// ===== دوال OTP الجديدة =====
+export const createOTP = async (phone, email = null) => {
+    const otp = new OTP({ phone, email, otp: generateOTP() });
+    return otp.save();
+};
 
-export default { initDB, dbGet, dbAll, dbRun, User, Auction, Bid, Notification, Settings };
+export const generateOTP = () => {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+export const verifyOTP = async (phone, otp) => {
+    const record = await OTP.findOne({ phone, otp, verified: false });
+    if (!record || new Date() > record.expiresAt) {
+        return null;
+    }
+    return record;
+};
+
+export const markOTPAsVerified = async (phone) => {
+    return OTP.updateOne({ phone }, { verified: true });
+};
+
+// ===== دوال المدفوعات الجديدة =====
+export const createPayment = async (data) => {
+    const payment = new Payment(data);
+    return payment.save();
+};
+
+export const getPayment = async (winnerCode) => {
+    return Payment.findOne({ winnerCode });
+};
+
+export const updatePayment = async (id, data) => {
+    return Payment.findByIdAndUpdate(id, data, { new: true });
+};
+
+export const getPaymentsByStatus = async (status, limit = 50) => {
+    return Payment.find({ status }).sort({ createdAt: -1 }).limit(limit).lean();
+};
+
+// ===== دوال الفائزين الجديدة =====
+export const createWinner = async (data) => {
+    const winner = new Winner(data);
+    return winner.save();
+};
+
+export const getWinner = async (query) => {
+    return Winner.findOne(query);
+};
+
+export const updateWinner = async (id, data) => {
+    return Winner.findByIdAndUpdate(id, data, { new: true });
+};
+
+export const getWinnersByAuction = async (auctionId) => {
+    return Winner.findOne({ auctionId });
+};
+
+// ===== دوال السجلات الجديدة =====
+export const createAuditLog = async (data) => {
+    const log = new AuditLog(data);
+    return log.save();
+};
+
+export const getAuditLogs = async (filter = {}, limit = 100) => {
+    return AuditLog.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
+};
+
+// ===== دوال التقييمات الجديدة =====
+export const createReview = async (data) => {
+    const review = new Review(data);
+    return review.save();
+};
+
+export const getReviews = async (auctionId) => {
+    return Review.find({ auctionId }).lean();
+};
+
+export const getSellerRating = async (sellerId) => {
+    const reviews = await Review.aggregate([
+        { $match: { sellerId } },
+        { $group: { _id: null, avgRating: { $avg: '$rating' }, count: { $sum: 1 } } }
+    ]);
+    return reviews[0] || { avgRating: 0, count: 0 };
+};
+
+// ===== تصدير النماذج =====
+export { User, Auction, Bid, Notification, Settings, Message, OTP, Payment, Winner, AuditLog, Review };
+
+export default { initDB, dbGet, dbAll, dbRun, User, Auction, Bid, Notification, Settings, OTP, Payment, Winner, AuditLog, Review };

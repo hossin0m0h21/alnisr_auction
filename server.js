@@ -8,10 +8,15 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import bcrypt from 'bcryptjs';
 import validator from 'validator';
-import { initDB, findAllAuctions, findUser, createUser, findAllUsers, findAuction, createBid, findAllBids, updateAuction, updateUser, findNotifications, Auction, Bid, Notification, Message } from './database.js';
+import { initDB, findAllAuctions, findUser, createUser, findAllUsers, findAuction, createBid, findAllBids, updateAuction, updateUser, findNotifications, Auction, Bid, Notification, Message, OTP, Payment, Winner, AuditLog, Review, createOTP, verifyOTP, markOTPAsVerified, createPayment, getPayment, updatePayment, createWinner, getWinner, createAuditLog, createReview, getReviews, generateOTP } from './database.js';
 import mongoose from 'mongoose';
 import multer from 'multer';
 import fs from 'fs';
+import { sendEmailOTP, sendAuctionWinnerEmail, sendSMSOTP, generateWinnerCode } from './services.js';
+import { createStripePaymentIntent, confirmStripePayment, refundStripePayment } from './payment.js';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -335,6 +340,31 @@ app.post('/api/admin/approve-user/:id', async (req, res) => {
     }
 });
 
+// رفض/حذف مستخدم (Reject -> deleted نهائياً)
+app.post('/api/admin/reject-user/:id', async (req, res) => {
+    try {
+        // إذا تحب بدل الحذف تغيير status فقط بدّل السطر التالي إلى:
+        // await updateUser(req.params.id, { status: 'rejected' });
+        await mongoose.model('User').deleteOne({ _id: req.params.id });
+
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// حذف مستخدم نهائياً
+app.delete('/api/admin/users/:id', async (req, res) => {
+    try {
+        await mongoose.model('User').deleteOne({ _id: req.params.id });
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+
+
 // إنشاء مزاد
 app.post('/api/admin/create-auction', async (req, res) => {
     const { itemName, description, startPrice, date, mediaType, mediaUrl, mediaGallery, durationMinutes, bidIncrement, startTime } = req.body;
@@ -586,6 +616,433 @@ app.post('/api/admin/clear-all', async (req, res) => {
     }
 });
 
+// ===== نظام OTP الجديد =====
+
+// طلب رمز التحقق
+app.post('/api/otp/request', authLimiter, async (req, res) => {
+    const { phone, email } = req.body;
+    try {
+        if (!phone || !validator.isMobilePhone(phone, 'ar-SA')) {
+            return res.status(400).json({ error: 'رقم الهاتف غير صحيح' });
+        }
+
+        // حذف OTPs القديمة
+        await OTP.deleteMany({ phone });
+
+        // إنشاء OTP جديد
+        const otp = generateOTP();
+        await OTP.create({ phone, email, otp });
+
+        // إرسال عبر SMS
+        if (process.env.TWILIO_ACCOUNT_SID) {
+            await sendSMSOTP(phone, otp);
+        }
+
+        // إرسال عبر البريد الإلكتروني إن وُجد
+        if (email) {
+            await sendEmailOTP(email, otp);
+        }
+
+        res.json({ success: true, message: 'تم إرسال الرمز بنجاح' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// التحقق من الرمز
+app.post('/api/otp/verify', async (req, res) => {
+    const { phone, otp } = req.body;
+    try {
+        const record = await verifyOTP(phone, otp);
+        if (!record) {
+            return res.status(400).json({ error: 'الرمز غير صحيح أو انتهت صلاحيته' });
+        }
+
+        await markOTPAsVerified(phone);
+        res.json({ success: true, verified: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ===== نظام المدفوعات الجديد =====
+
+// إنشاء دفعة
+app.post('/api/payments/create', async (req, res) => {
+    const { userId, auctionId, amount, paymentMethod = 'stripe' } = req.body;
+    try {
+        if (!userId || !auctionId || !amount || amount <= 0) {
+            return res.status(400).json({ error: 'بيانات الدفع غير صحيحة' });
+        }
+
+        const winnerCode = generateWinnerCode();
+        const payment = await createPayment({
+            userId: new mongoose.Types.ObjectId(userId),
+            auctionId: new mongoose.Types.ObjectId(auctionId),
+            winnerCode,
+            amount,
+            paymentMethod,
+            status: 'pending'
+        });
+
+        res.json({ success: true, payment });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// الحصول على حالة الدفعة
+app.get('/api/payments/:winnerCode', async (req, res) => {
+    try {
+        const payment = await getPayment(req.params.winnerCode);
+        if (!payment) {
+            return res.status(404).json({ error: 'الدفعة غير موجودة' });
+        }
+        res.json(payment);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// تأكيد الدفعة
+app.post('/api/payments/:winnerCode/confirm', async (req, res) => {
+    try {
+        const { transactionId } = req.body;
+        const payment = await getPayment(req.params.winnerCode);
+        
+        if (!payment) {
+            return res.status(404).json({ error: 'الدفعة غير موجودة' });
+        }
+
+        await updatePayment(payment._id, {
+            status: 'completed',
+            transactionId,
+            paidAt: new Date()
+        });
+
+        // تحديث الفائز
+        const winner = await getWinner({ winnerCode: req.params.winnerCode });
+        if (winner) {
+            await updateWinner(winner._id, { paymentStatus: 'completed' });
+        }
+
+        broadcast({ type: 'PAYMENT_COMPLETED', winnerCode: req.params.winnerCode });
+        res.json({ success: true, message: 'تم تأكيد الدفعة بنجاح' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ===== نظام الفائزين الجديد =====
+
+// تحديد الفائز عند انتهاء المزاد
+app.post('/api/admin/finalize-auction/:auctionId', async (req, res) => {
+    try {
+        const auction = await findAuction({ _id: req.params.auctionId });
+        if (!auction || auction.status !== 'ended') {
+            return res.status(400).json({ error: 'المزاد غير منتهي بعد' });
+        }
+
+        // التحقق من عدم وجود فائز سابق
+        const existingWinner = await getWinner({ auctionId: req.params.auctionId });
+        if (existingWinner) {
+            return res.status(400).json({ error: 'تم تحديد الفائز بالفعل' });
+        }
+
+        const bids = await findAllBids({ auctionId: req.params.auctionId });
+        if (bids.length === 0) {
+            return res.status(400).json({ error: 'لا توجد مزايدات' });
+        }
+
+        const highestBid = bids[0];
+        const bidder = await findUser({ _id: highestBid.userId });
+        
+        if (!bidder) {
+            return res.status(404).json({ error: 'المزايد غير موجود' });
+        }
+
+        const winnerCode = generateWinnerCode();
+        
+        // إنشاء سجل الفائز
+        const winner = await createWinner({
+            auctionId: new mongoose.Types.ObjectId(req.params.auctionId),
+            userId: new mongoose.Types.ObjectId(highestBid.userId),
+            winnerPhone: bidder.phone,
+            winnerName: bidder.fullname,
+            winnerEmail: bidder.email,
+            finalBidAmount: highestBid.amount,
+            winnerCode
+        });
+
+        // إنشاء سجل دفعة
+        await createPayment({
+            userId: new mongoose.Types.ObjectId(highestBid.userId),
+            auctionId: new mongoose.Types.ObjectId(req.params.auctionId),
+            winnerCode,
+            amount: highestBid.amount,
+            status: 'pending'
+        });
+
+        // إرسال إشعار للفائز
+        await sendAuctionWinnerEmail(
+            bidder.email || bidder.phone,
+            bidder.fullname,
+            auction.itemName,
+            highestBid.amount,
+            winnerCode
+        );
+
+        // تسجيل الحدث
+        await createAuditLog({
+            action: 'AUCTION_FINALIZED',
+            auctionId: req.params.auctionId,
+            details: { winner: bidder.fullname, amount: highestBid.amount }
+        });
+
+        broadcast({ type: 'WINNER_DECLARED', winnerCode, winner: bidder.fullname, amount: highestBid.amount });
+        res.json({ success: true, winner, winnerCode });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// الحصول على بيانات الفائز
+app.get('/api/winner/:winnerCode', async (req, res) => {
+    try {
+        const winner = await getWinner({ winnerCode: req.params.winnerCode });
+        if (!winner) {
+            return res.status(404).json({ error: 'الفائز غير موجود' });
+        }
+        res.json(winner);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ===== نظام التقييمات الجديد =====
+
+// إضافة تقييم
+app.post('/api/reviews', async (req, res) => {
+    const { auctionId, buyerId, rating, comment } = req.body;
+    try {
+        if (!auctionId || !buyerId || !rating || rating < 1 || rating > 5) {
+            return res.status(400).json({ error: 'بيانات التقييم غير صحيحة' });
+        }
+
+        const review = await createReview({
+            auctionId: new mongoose.Types.ObjectId(auctionId),
+            buyerId: new mongoose.Types.ObjectId(buyerId),
+            rating,
+            comment
+        });
+
+        res.json({ success: true, review });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// الحصول على التقييمات
+app.get('/api/reviews/:auctionId', async (req, res) => {
+    try {
+        const reviews = await getReviews(req.params.auctionId);
+        res.json(reviews);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ===== السجلات والتقارير =====
+
+// الحصول على السجلات
+app.get('/api/admin/logs', async (req, res) => {
+    try {
+        const logs = await AuditLog.find().sort({ createdAt: -1 }).limit(100).lean();
+        res.json(logs);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ===== معالجة المدفوعات المتقدمة =====
+
+// إنشاء Stripe Payment Intent
+app.post('/api/payments/stripe/create-intent', async (req, res) => {
+    const { amount, auctionId, winnerCode } = req.body;
+    try {
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ error: 'المبلغ غير صحيح' });
+        }
+
+        const result = await createStripePaymentIntent(amount, 'sar', {
+            auctionId,
+            winnerCode
+        });
+
+        if (result.success) {
+            res.json(result);
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// التحقق من Stripe Payment
+app.post('/api/payments/stripe/verify', async (req, res) => {
+    const { paymentIntentId, winnerCode } = req.body;
+    try {
+        const result = await confirmStripePayment(paymentIntentId);
+        
+        if (result.success && result.verified) {
+            // تحديث حالة الدفعة
+            const payment = await getPayment(winnerCode);
+            if (payment) {
+                await updatePayment(payment._id, {
+                    status: 'completed',
+                    stripePaymentIntentId: paymentIntentId,
+                    paidAt: new Date()
+                });
+            }
+
+            broadcast({ type: 'PAYMENT_VERIFIED', winnerCode });
+            res.json({ success: true, message: 'تم التحقق من الدفع بنجاح' });
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// استرجاع المبلغ
+app.post('/api/payments/:winnerCode/refund', async (req, res) => {
+    try {
+        const payment = await getPayment(req.params.winnerCode);
+        if (!payment) {
+            return res.status(404).json({ error: 'الدفعة غير موجودة' });
+        }
+
+        if (!payment.stripePaymentIntentId) {
+            return res.status(400).json({ error: 'لا يمكن استرجاع هذه الدفعة' });
+        }
+
+        const result = await refundStripePayment(payment.stripePaymentIntentId, payment.amount);
+
+        if (result.success) {
+            await updatePayment(payment._id, { status: 'refunded' });
+            res.json({ success: true, refundId: result.refundId });
+        } else {
+            res.status(400).json(result);
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// الحصول على معلومات التحويل البنكي
+app.post('/api/payments/bank-transfer', async (req, res) => {
+    const { amount, winnerCode } = req.body;
+    try {
+        const bankDetails = {
+            accountName: 'ALNISR Auction',
+            bankName: 'البنك الأهلي السعودي',
+            iban: 'SA12 3456 7890 1234 5678 9012',
+            accountNumber: '1234567890',
+            amount,
+            reference: winnerCode,
+            validUntil: new Date(Date.now() + 48 * 60 * 60 * 1000),
+            instructions: [
+                'قم بتحويل المبلغ إلى الحساب أعلاه',
+                'استخدم الرقم المرجعي كتفصيل التحويل',
+                'سيتم تأكيد الدفعة خلال 24 ساعة'
+            ]
+        };
+
+        res.json({ success: true, bankDetails });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// تأكيد التحويل البنكي (يدويا من قبل الإدارة)
+app.post('/api/payments/:winnerCode/confirm-transfer', async (req, res) => {
+    try {
+        const payment = await getPayment(req.params.winnerCode);
+        if (!payment) {
+            return res.status(404).json({ error: 'الدفعة غير موجودة' });
+        }
+
+        await updatePayment(payment._id, {
+            status: 'completed',
+            paymentMethod: 'bank_transfer',
+            paidAt: new Date()
+        });
+
+        broadcast({ type: 'PAYMENT_CONFIRMED', winnerCode: req.params.winnerCode });
+        res.json({ success: true, message: 'تم تأكيد التحويل البنكي' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ===== الإحصائيات والتقارير المحسّنة =====
+
+// تقرير المدفوعات
+app.get('/api/admin/reports/payments', async (req, res) => {
+    try {
+        const startDate = req.query.start ? new Date(req.query.start) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const endDate = req.query.end ? new Date(req.query.end) : new Date();
+
+        const payments = await Payment.find({
+            createdAt: { $gte: startDate, $lte: endDate }
+        }).lean();
+
+        const totalRevenue = payments.reduce((sum, p) => p.status === 'completed' ? sum + p.amount : sum, 0);
+        const completed = payments.filter(p => p.status === 'completed').length;
+        const pending = payments.filter(p => p.status === 'pending').length;
+        const failed = payments.filter(p => p.status === 'failed').length;
+
+        res.json({
+            period: { start: startDate, end: endDate },
+            totalRevenue,
+            totalTransactions: payments.length,
+            completed,
+            pending,
+            failed,
+            averageTransaction: totalRevenue / completed || 0,
+            byMethod: groupByMethod(payments),
+            dailyRevenue: getDailyRevenue(payments)
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// تقرير الفائزين
+app.get('/api/admin/reports/winners', async (req, res) => {
+    try {
+        const winners = await Winner.find().populate('userId', 'fullname phone').lean();
+        
+        const totalWinners = winners.length;
+        const paidWinners = winners.filter(w => w.paymentStatus === 'completed').length;
+        const pendingWinners = winners.filter(w => w.paymentStatus === 'pending').length;
+        const totalValue = winners.reduce((sum, w) => sum + w.finalBidAmount, 0);
+
+        res.json({
+            totalWinners,
+            paidWinners,
+            pendingWinners,
+            totalValue,
+            averageWinAmount: totalValue / totalWinners || 0,
+            winners
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // 404 Handler
 app.use((req, res) => {
     res.status(404).json({ error: 'الطلب غير موجود' });
@@ -596,6 +1053,28 @@ app.use((err, req, res, next) => {
     console.error('خطأ:', err);
     res.status(err.status || 500).json({ error: err.message || 'خطأ الخادم' });
 });
+
+// ===== دوال مساعدة =====
+function groupByMethod(payments) {
+    const grouped = {};
+    payments.forEach(p => {
+        if (p.status === 'completed') {
+            grouped[p.paymentMethod] = (grouped[p.paymentMethod] || 0) + p.amount;
+        }
+    });
+    return grouped;
+}
+
+function getDailyRevenue(payments) {
+    const daily = {};
+    payments.forEach(p => {
+        if (p.status === 'completed') {
+            const date = new Date(p.createdAt).toISOString().split('T')[0];
+            daily[date] = (daily[date] || 0) + p.amount;
+        }
+    });
+    return daily;
+}
 
 // بدء الخادم
 initDB().then(() => {

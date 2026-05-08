@@ -1,0 +1,4 @@
+MONGO_URI=mongodb+srv://alnisr_auction:Hmh4242001@alnisrauction.l7jysft.mongodb.net/?appName=AlnisrAuction
+PORT=3000
+NODE_ENV=production
+ADMIN_PASSWORD=admin2026
