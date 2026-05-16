@@ -1,1120 +1,971 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import { WebSocketServer } from 'ws';
-import { createServer } from 'http';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import bcrypt from 'bcryptjs';
-import validator from 'validator';
-import { initDB, findAllAuctions, findUser, createUser, findAllUsers, findAuction, createBid, findAllBids, updateAuction, updateUser, findNotifications, Auction, Bid, Notification, Message, OTP, Payment, Winner, AuditLog, Review, createOTP, verifyOTP, markOTPAsVerified, createPayment, getPayment, updatePayment, createWinner, getWinner, createAuditLog, createReview, getReviews, generateOTP } from './database.js';
-import mongoose from 'mongoose';
-import multer from 'multer';
 import fs from 'fs';
-import { sendEmailOTP, sendAuctionWinnerEmail, sendSMSOTP, generateWinnerCode } from './services.js';
-import { createStripePaymentIntent, confirmStripePayment, refundStripePayment } from './payment.js';
+import http from 'http';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
+import express from 'express';
+import { v4 as uuidv4 } from 'uuid';
+import { WebSocketServer } from 'ws';
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PORT = Number(process.env.PORT) || 3000;
+const ROOT_DIR = __dirname;
+const DATA_DIR = path.join(ROOT_DIR, '.data');
+const STORE_FILE = path.join(DATA_DIR, 'store.json');
+const DEFAULT_ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin2026';
+const DEFAULT_SITE_NAME = 'ALNISR';
+
 const app = express();
-const server = createServer(app);
+const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (NODE_ENV === 'production' ? '' : 'admin2026');
-let clients = new Set();
-let auctionTimers = new Map();
-
-if (NODE_ENV === 'production' && !ADMIN_PASSWORD) {
-    console.error('ADMIN_PASSWORD must be configured in production');
-    process.exit(1);
+function nowIso() {
+    return new Date().toISOString();
 }
 
-const uploadsDir = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, 'uploads'));
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir, { recursive: true });
+function makeId(prefix) {
+    return `${prefix}_${uuidv4().replace(/-/g, '').slice(0, 12)}`;
 }
 
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, uploadsDir),
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        cb(null, uniqueSuffix + path.extname(file.originalname));
-    }
-});
-
-const upload = multer({
-    storage,
-    limits: { fileSize: 100 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-        const allowedTypes = /jpeg|jpg|png|gif|webp|mp4|webm|mov|pdf/;
-        const ext = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-        const mime = allowedTypes.test(file.mimetype);
-        if (ext || mime) cb(null, true);
-        else cb(new Error('نوع الملف غير مدعوم'));
-    }
-});
-
-function startAuctionTimer(auctionId, endTime) {
-    const timeRemaining = new Date(endTime) - new Date();
-    if (timeRemaining <= 0) return;
-    
-    if (auctionTimers.has(auctionId)) {
-        clearInterval(auctionTimers.get(auctionId));
-    }
-    
-    const timer = setInterval(async () => {
-        const currentTime = new Date();
-        const remaining = new Date(endTime) - currentTime;
-        
-        if (remaining <= 0) {
-            clearInterval(timer);
-            auctionTimers.delete(auctionId);
-            await updateAuction(auctionId, { status: 'ended' });
-            broadcast({ type: 'AUCTION_ENDED', auctionId, winner: true });
-            return;
-        }
-        
-        broadcast({ 
-            type: 'TIMER_UPDATE', 
-            auctionId, 
-            timeRemaining: remaining,
-            endTime: endTime 
-        });
-    }, 1000);
-    
-    auctionTimers.set(auctionId, timer);
+function createDefaultSettings() {
+    return {
+        siteName: DEFAULT_SITE_NAME,
+        welcomeMessage: 'Welcome to ALNISR Auction',
+        bidIncrement: 100,
+        auctionDuration: 60,
+        adminPasswordHash: bcrypt.hashSync(DEFAULT_ADMIN_PASSWORD, 10),
+        updatedAt: nowIso()
+    };
 }
 
-// ===== الأمان =====
-app.use(helmet());
-const corsOrigin = process.env.CORS_ORIGIN || '*';
-app.use(cors({
-    origin: corsOrigin === '*' ? true : corsOrigin.split(',').map(origin => origin.trim()),
-    credentials: corsOrigin !== '*'
-}));
+function createDefaultStore() {
+    return {
+        settings: createDefaultSettings(),
+        users: [],
+        auctions: [],
+        bids: [],
+        messages: [],
+        notifications: []
+    };
+}
 
-// ===== Rate Limiting =====
-const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 1000,
-    message: 'عدد كبير من الطلبات'
-});
+function ensureDataFile() {
+    if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
 
-const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
-    message: 'حاول لاحقاً'
-});
+    if (!fs.existsSync(STORE_FILE)) {
+        fs.writeFileSync(STORE_FILE, JSON.stringify(createDefaultStore(), null, 2));
+    }
+}
 
-app.use(limiter);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.static(__dirname));
+function ensureArray(value) {
+    return Array.isArray(value) ? value : [];
+}
 
-app.get('/api/health', (req, res) => {
-    const dbState = mongoose.connection.readyState;
+function normalizeStore(rawStore) {
+    const fallback = createDefaultStore();
+    const rawSettings = rawStore?.settings || {};
+    const settings = {
+        ...fallback.settings,
+        ...rawSettings
+    };
 
-    res.status(dbState === 1 ? 200 : 503).json({
-        status: dbState === 1 ? 'ok' : 'degraded',
-        environment: NODE_ENV,
-        database: dbState === 1 ? 'connected' : 'disconnected',
-        uploadsDir
-    });
-});
+    if (!settings.adminPasswordHash) {
+        if (rawSettings.adminPassword) {
+            settings.adminPasswordHash = bcrypt.hashSync(rawSettings.adminPassword, 10);
+        } else {
+            settings.adminPasswordHash = fallback.settings.adminPasswordHash;
+        }
+    }
 
-// ===== دالة البث الفوري =====
-function broadcast(data) {
-    clients.forEach(ws => {
-        if (ws.readyState === 1) ws.send(JSON.stringify(data));
+    if (process.env.ADMIN_PASSWORD) {
+        settings.adminPasswordHash = bcrypt.hashSync(process.env.ADMIN_PASSWORD, 10);
+    }
+
+    const users = ensureArray(rawStore?.users).map((user, index) => ({
+        id: user.id || user._id || makeId('usr'),
+        memberId: user.memberId || `AL-${String(index + 1001).padStart(4, '0')}`,
+        fullname: user.fullname || user.fullName || 'Member',
+        phone: user.phone || '',
+        passwordHash: user.passwordHash || user.password || '',
+        status: user.status || 'pending',
+        createdAt: user.createdAt || nowIso()
+    }));
+
+    const auctions = ensureArray(rawStore?.auctions).map((auction) => ({
+        id: auction.id || auction._id || makeId('auc'),
+        itemName: auction.itemName || 'Auction Item',
+        description: auction.description || '',
+        startPrice: Number(auction.startPrice || 0),
+        currentPrice: Number(auction.currentPrice ?? auction.startPrice ?? 0),
+        minimumIncrement: Number(
+            auction.minimumIncrement ??
+            auction.increment ??
+            settings.bidIncrement ??
+            100
+        ),
+        durationMinutes: Number(
+            auction.durationMinutes ??
+            auction.duration ??
+            settings.auctionDuration ??
+            60
+        ),
+        status: auction.status || 'pending',
+        createdAt: auction.createdAt || nowIso(),
+        startedAt: auction.startedAt || null,
+        endAt: auction.endAt || auction.endTime || null,
+        endedAt: auction.endedAt || null,
+        highestBidderId: auction.highestBidderId || null,
+        highestBidderName: auction.highestBidderName || auction.highestBidder || null,
+        winnerCode: auction.winnerCode || null,
+        paymentStatus: auction.paymentStatus || 'pending',
+        paymentMethod: auction.paymentMethod || 'manual',
+        media: Array.isArray(auction.media) ? auction.media : [],
+        sellerApproved: auction.sellerApproved ?? null
+    }));
+
+    const bids = ensureArray(rawStore?.bids).map((bid) => ({
+        id: bid.id || bid._id || makeId('bid'),
+        auctionId: bid.auctionId,
+        userId: bid.userId,
+        bidderName: bid.bidderName || bid.userName || 'Member',
+        amount: Number(bid.amount || 0),
+        createdAt: bid.createdAt || nowIso()
+    }));
+
+    const messages = ensureArray(rawStore?.messages).map((message) => ({
+        id: message.id || message._id || makeId('msg'),
+        senderId: message.senderId || 'system',
+        senderName: message.senderName || 'System',
+        auctionId: message.auctionId || null,
+        content: message.content || '',
+        type: message.type || 'chat',
+        createdAt: message.createdAt || nowIso()
+    }));
+
+    const notifications = ensureArray(rawStore?.notifications).map((notification) => ({
+        id: notification.id || notification._id || makeId('ntf'),
+        userId: notification.userId,
+        message: notification.message || '',
+        type: notification.type || 'info',
+        read: Boolean(notification.read),
+        createdAt: notification.createdAt || nowIso()
+    }));
+
+    return { settings, users, auctions, bids, messages, notifications };
+}
+
+function readStoreFromDisk() {
+    ensureDataFile();
+
+    try {
+        const raw = fs.readFileSync(STORE_FILE, 'utf8');
+        return normalizeStore(JSON.parse(raw));
+    } catch (error) {
+        console.error('Failed to read store, rebuilding a clean file.', error);
+        const cleanStore = createDefaultStore();
+        fs.writeFileSync(STORE_FILE, JSON.stringify(cleanStore, null, 2));
+        return normalizeStore(cleanStore);
+    }
+}
+
+let store = readStoreFromDisk();
+
+function writeStore() {
+    store.settings.updatedAt = nowIso();
+    fs.writeFileSync(STORE_FILE, JSON.stringify(store, null, 2));
+}
+
+function withLegacyId(record) {
+    return record ? { ...record, _id: record.id } : record;
+}
+
+function sanitizeUser(user) {
+    return withLegacyId({
+        id: user.id,
+        memberId: user.memberId,
+        fullname: user.fullname,
+        phone: user.phone,
+        status: user.status,
+        createdAt: user.createdAt
     });
 }
 
-// ===== اتصال WebSocket =====
-wss.on('connection', (ws) => {
-    clients.add(ws);
-    console.log('عميل جديد متصل. العدد الكلي:', clients.size);
-    
-    ws.on('close', () => {
-        clients.delete(ws);
-        console.log('عميل قطع الاتصال. العدد الكلي:', clients.size);
+function sanitizeAuction(auction) {
+    const bidsCount = store.bids.filter((bid) => bid.auctionId === auction.id).length;
+    return withLegacyId({
+        ...auction,
+        bidsCount
     });
-    
-    ws.on('error', (error) => {
-        console.error('خطأ WebSocket:', error);
-        clients.delete(ws);
-    });
-});
+}
 
-// ===== الـ APIs =====
+function sanitizeBid(bid) {
+    return withLegacyId({ ...bid });
+}
 
-// الحصول على جميع المزادات
-app.get('/api/auctions', async (req, res) => {
-    try {
-        const auctions = await findAllAuctions();
-        res.json(auctions);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
+function sanitizeMessage(message) {
+    return withLegacyId({ ...message });
+}
 
-// التسجيل
-app.post('/api/register', authLimiter, async (req, res) => {
-    const { fullname, phone, password } = req.body;
-    try {
-        // التحقق من البيانات
-        if (!fullname || !phone || !password) {
-            return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
+function publicSettings() {
+    return {
+        siteName: store.settings.siteName,
+        welcomeMessage: store.settings.welcomeMessage,
+        bidIncrement: Number(store.settings.bidIncrement || 100),
+        auctionDuration: Number(store.settings.auctionDuration || 60),
+        updatedAt: store.settings.updatedAt
+    };
+}
+
+function generateMemberId() {
+    const numbers = store.users
+        .map((user) => Number(String(user.memberId || '').replace(/\D/g, '')))
+        .filter((value) => Number.isFinite(value));
+    const next = numbers.length ? Math.max(...numbers) + 1 : 1001;
+    return `AL-${String(next).padStart(4, '0')}`;
+}
+
+function generateWinnerCode() {
+    return `WIN-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+}
+
+function findUser(userId) {
+    return store.users.find((user) => user.id === userId || user.memberId === userId);
+}
+
+function findAuction(auctionId) {
+    return store.auctions.find((auction) => auction.id === auctionId || auction._id === auctionId);
+}
+
+function createNotification(userId, message, type = 'info') {
+    const notification = {
+        id: makeId('ntf'),
+        userId,
+        message,
+        type,
+        read: false,
+        createdAt: nowIso()
+    };
+
+    store.notifications.push(notification);
+    return notification;
+}
+
+function addSystemMessage(content, auctionId = null, type = 'system') {
+    const message = {
+        id: makeId('msg'),
+        senderId: 'system',
+        senderName: 'System',
+        auctionId,
+        content,
+        type,
+        createdAt: nowIso()
+    };
+
+    store.messages.push(message);
+    return message;
+}
+
+function broadcastEvent(type, data = {}) {
+    const payload = JSON.stringify({ type, data });
+
+    for (const client of wss.clients) {
+        if (client.readyState === 1) {
+            client.send(payload);
         }
-        
-        if (fullname.split(' ').filter(w => w).length < 3) {
-            return res.status(400).json({ error: 'الاسم الكامل يجب أن يكون ثلاث كلمات على الأقل' });
-        }
-        
-        if (!validator.isMobilePhone(phone, 'ar-SA')) {
-            return res.status(400).json({ error: 'رقم الهاتف غير صحيح' });
-        }
-        
-        if (password.length < 6) {
-            return res.status(400).json({ error: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل' });
-        }
-        
-        const existing = await findUser({ phone });
-        if (existing) return res.status(400).json({ error: 'رقم الهاتف مسجل بالفعل' });
-
-        // تشفير كلمة المرور
-        const hashedPassword = await bcrypt.hash(password, 10);
-
-        const newUser = await createUser({
-            phone,
-            fullname,
-            password: hashedPassword,
-            status: 'pending',
-            createdAt: new Date()
-        });
-        
-        broadcast({ type: 'NEW_MEMBER', userId: newUser._id });
-        res.json({ id: newUser._id, message: 'التسجيل في انتظار الموافقة' });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
     }
-});
+}
 
-// تسجيل الدخول
-app.post('/api/login', authLimiter, async (req, res) => {
-    const { id, password } = req.body;
-    try {
-        if (!id || !password) {
-            return res.status(400).json({ error: 'رقم الهاتف/المعرف وكلمة المرور مطلوبة' });
-        }
+function finalizeAuction(auction, reason = 'manual') {
+    auction.status = 'ended';
+    auction.endedAt = nowIso();
 
-        let user;
-        
-        // البحث عن المستخدم بـ ID أو الهاتف
-        if (mongoose.Types.ObjectId.isValid(id)) {
-            user = await findUser({ _id: id, status: 'approved' });
-        }
-        
-        if (!user) {
-            user = await findUser({ phone: id, status: 'approved' });
-        }
-        
-        if (!user) return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
-        
-        // التحقق من كلمة المرور
-        const isPasswordValid = await bcrypt.compare(password, user.password);
-        if (!isPasswordValid) return res.status(401).json({ error: 'بيانات الدخول غير صحيحة' });
-        
-        // إرجاع بيانات بدون كلمة المرور
-        const { password: _, ...userWithoutPassword } = user.toObject ? user.toObject() : user;
-        res.json(userWithoutPassword);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على بيانات المستخدم
-app.get('/api/user/:id', async (req, res) => {
-    try {
-        const user = await findUser({ _id: req.params.id });
-        if (!user) return res.status(404).json({ error: 'User not found' });
-        
-        // إرجاع بيانات محدودة بدون كلمة المرور
-        const { password, ...userData } = user;
-        res.json(userData);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// المزايدة
-app.post('/api/bid', limiter, async (req, res) => {
-    const { auctionId, userId, userName, amount } = req.body;
-    try {
-        // التحقق من البيانات
-        if (!auctionId || !userId || !amount) {
-            return res.status(400).json({ error: 'جميع الحقول مطلوبة' });
-        }
-
-        if (typeof amount !== 'number' || amount <= 0) {
-            return res.status(400).json({ error: 'المبلغ يجب أن يكون رقم موجب' });
-        }
-
-        const auction = await findAuction({ _id: auctionId });
-        if (!auction || auction.status !== 'active') {
-            return res.status(400).json({ error: 'المزاد غير نشط' });
-        }
-        
-        const currentPrice = auction.currentPrice || auction.startPrice || 0;
-        if (amount <= currentPrice) {
-            return res.status(400).json({ error: `المزايدة يجب أن تكون أكثر من ${currentPrice}` });
-        }
-
-        // إضافة المزايدة
-        const newBid = await createBid({
-            auctionId: new mongoose.Types.ObjectId(auctionId),
-            userId: new mongoose.Types.ObjectId(userId),
-            userName,
-            amount,
-            timestamp: new Date()
-        });
-
-        // تحديث المزاد
-        await updateAuction(auctionId, {
-            currentPrice: amount,
-            highestBidder: userName,
-            highestBidderId: userId
-        });
-
-        broadcast({ type: 'BID_PLACED', auctionId, amount, bidder: userName });
-        res.json({ success: true, bid: newBid });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على مزايدات المزاد
-app.get('/api/bids/:auctionId', async (req, res) => {
-    try {
-        const bids = await findAllBids({ auctionId: new mongoose.Types.ObjectId(req.params.auctionId) });
-        res.json(bids);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على مزايدات المستخدم
-app.get('/api/user-bids/:userId', async (req, res) => {
-    try {
-        const bids = await Bid.aggregate([
-            { $match: { userId: new mongoose.Types.ObjectId(req.params.userId) } },
-            { $lookup: { from: 'auctions', localField: 'auctionId', foreignField: '_id', as: 'auction' } },
-            { $sort: { timestamp: -1 } },
-            { $project: { 'auction.itemName': 1, amount: 1, timestamp: 1, auctionId: 1 } }
-        ]);
-        res.json(bids);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// تسجيل دخول الإدارة
-app.post('/api/admin/login', (req, res) => {
-    const { password } = req.body;
-    if (!ADMIN_PASSWORD) {
-        return res.status(503).json({ error: 'Admin password is not configured' });
-    }
-
-    if (password === ADMIN_PASSWORD) {
-        res.json({ success: true });
-    } else {
-        res.status(401).json({ error: 'Wrong password' });
-    }
-});
-
-// الحصول على جميع المستخدمين
-app.get('/api/admin/users', async (req, res) => {
-    try {
-        const users = await findAllUsers();
-        // إزالة كلمات المرور
-        const safeUsers = users.map(u => {
-            const { password, ...userData } = u;
-            return userData;
-        });
-        res.json(safeUsers);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الموافقة على مستخدم
-app.post('/api/admin/approve-user/:id', async (req, res) => {
-    try {
-        await updateUser(req.params.id, { status: 'approved' });
-        broadcast({ type: 'USER_APPROVED', userId: req.params.id });
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// رفض/حذف مستخدم (Reject -> deleted نهائياً)
-app.post('/api/admin/reject-user/:id', async (req, res) => {
-    try {
-        // إذا تحب بدل الحذف تغيير status فقط بدّل السطر التالي إلى:
-        // await updateUser(req.params.id, { status: 'rejected' });
-        await mongoose.model('User').deleteOne({ _id: req.params.id });
-
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// حذف مستخدم نهائياً
-app.delete('/api/admin/users/:id', async (req, res) => {
-    try {
-        await mongoose.model('User').deleteOne({ _id: req.params.id });
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-
-
-// إنشاء مزاد
-app.post('/api/admin/create-auction', async (req, res) => {
-    const { itemName, description, startPrice, date, mediaType, mediaUrl, mediaGallery, durationMinutes, bidIncrement, startTime } = req.body;
-    try {
-        const newAuction = await Auction.create({
-            itemName,
-            description,
-            startPrice,
-            currentPrice: startPrice,
-            bidIncrement: bidIncrement || 100,
-            currentBid: 0,
-            status: 'pending',
-            date,
-            startTime: startTime || null,
-            endTime: null,
-            durationMinutes: durationMinutes || 60,
-            mediaType,
-            mediaUrl,
-            mediaGallery: mediaGallery || [],
-            sellerApproved: false,
-            createdAt: new Date()
-        });
-        
-        broadcast({ type: 'NEW_AUCTION', auctionId: newAuction._id });
-        res.json({ id: newAuction._id });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// بدء المزاد مع المؤقت
-app.post('/api/admin/start-auction/:id', async (req, res) => {
-    try {
-        const auction = await findAuction({ _id: req.params.id });
-        if (!auction) return res.status(404).json({ error: 'المزاد غير موجود' });
-        
-        const startTime = new Date();
-        const durationMs = (auction.durationMinutes || 60) * 60 * 1000;
-        const endTime = new Date(startTime.getTime() + durationMs);
-        
-        await updateAuction(req.params.id, { 
-            status: 'active',
-            startTime: startTime,
-            endTime: endTime
-        });
-        
-        startAuctionTimer(req.params.id, endTime);
-        broadcast({ type: 'AUCTION_STARTED', auctionId: req.params.id, endTime });
-        res.json({ success: true, endTime });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// تمديد الوقت
-app.post('/api/admin/extend-auction/:id', async (req, res) => {
-    try {
-        const { extendMinutes } = req.body;
-        const auction = await findAuction({ _id: req.params.id });
-        if (!auction || !auction.endTime) return res.status(400).json({ error: 'المزاد غير نشط' });
-        
-        const newEndTime = new Date(auction.endTime.getTime() + (extendMinutes || 5) * 60 * 1000);
-        
-        await updateAuction(req.params.id, { endTime: newEndTime });
-        startAuctionTimer(req.params.id, newEndTime);
-        broadcast({ type: 'AUCTION_EXTENDED', auctionId: req.params.id, endTime: newEndTime });
-        res.json({ success: true, endTime: newEndTime });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// إنهاء المزاد
-app.post('/api/admin/end-auction/:id', async (req, res) => {
-    try {
-        await updateAuction(req.params.id, { status: 'ended' });
-        broadcast({ type: 'AUCTION_ENDED', auctionId: req.params.id });
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على الإشعارات
-app.get('/api/notifications/:userId', async (req, res) => {
-    try {
-        const notifs = await findNotifications(req.params.userId);
-        res.json(notifs);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// وضع علامة على الإشعار كمقروء
-app.post('/api/notifications/:userId/mark-read/:id', async (req, res) => {
-    try {
-        await Notification.updateOne({ _id: req.params.id }, { read: true });
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الإحصائيات
-app.get('/api/stats', async (req, res) => {
-    try {
-        const totalUsers = await mongoose.model('User').countDocuments({ status: 'approved' });
-        const totalAuctions = await Auction.countDocuments();
-        const totalBids = await Bid.countDocuments();
-        
-        const auctionStats = await Auction.aggregate([
-            { $match: { status: 'ended' } },
-            { $group: { _id: null, totalRevenue: { $sum: '$currentPrice' } } }
-        ]);
-        
-        const totalRevenue = auctionStats[0]?.totalRevenue || 0;
-
-        res.json({
-            totalUsers,
-            totalAuctions,
-            totalBids,
-            totalRevenue
-        });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== نظام الرسائل والدردشة =====
-
-//发送 رسالة
-app.post('/api/messages/send', async (req, res) => {
-    const { senderId, senderName, receiverId, auctionId, content } = req.body;
-    try {
-        if (!senderId || !content) {
-            return res.status(400).json({ error: 'المعرف والرسالة مطلوبة' });
-        }
-        
-        const message = await Message.create({
-            senderId: new mongoose.Types.ObjectId(senderId),
-            senderName,
-            receiverId: receiverId ? new mongoose.Types.ObjectId(receiverId) : null,
-            auctionId: auctionId ? new mongoose.Types.ObjectId(auctionId) : null,
-            content,
-            type: 'text',
-            createdAt: new Date()
-        });
-        
-        broadcast({ type: 'NEW_MESSAGE', message });
-        res.json({ success: true, message });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// 获取 رسائل
-app.get('/api/messages', async (req, res) => {
-    const { userId, auctionId } = req.query;
-    try {
-        let query = {
-            $or: [
-                { senderId: new mongoose.Types.ObjectId(userId) },
-                { receiverId: new mongoose.Types.ObjectId(userId) },
-                { receiverId: null }
-            ]
-        };
-        
-        if (auctionId) {
-            query.$and = [{ auctionId: new mongoose.Types.ObjectId(auctionId) }];
-        }
-        
-        const messages = await Message.find(query)
-            .sort({ createdAt: 1 })
-            .limit(100)
-            .lean();
-        
-        res.json(messages);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// marquer كمقروء
-app.post('/api/messages/mark-read', async (req, res) => {
-    const { messageIds } = req.body;
-    try {
-        await Message.updateMany(
-            { _id: { $in: messageIds.map(id => new mongoose.Types.ObjectId(id)) } },
-            { read: true }
-        );
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== رفع الملفات =====
-
-app.post('/api/upload', upload.array('files', 10), (req, res) => {
-    try {
-        const files = req.files.map(f => ({
-            filename: f.filename,
-            originalName: f.originalname,
-            path: '/uploads/' + f.filename,
-            size: f.size,
-            type: f.mimetype
-        }));
-        res.json({ success: true, files });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.use('/uploads', express.static(uploadsDir));
-
-// إرسال إشعار جماعي
-app.post('/api/broadcast', async (req, res) => {
-    const { content } = req.body;
-    try {
-        const users = await User.find({ status: 'approved' });
-        const notifications = users.map(u => ({
-            userId: u._id,
-            message: content,
-            type: 'broadcast',
-            read: false,
-            createdAt: new Date()
-        }));
-        await Notification.insertMany(notifications);
-        broadcast({ type: 'BROADCAST', content });
-        res.json({ success: true, count: notifications.length });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// مسح جميع البيانات
-app.post('/api/admin/clear-all', async (req, res) => {
-    try {
-        await Promise.all([
-            User.deleteMany({}),
-            Auction.deleteMany({}),
-            Bid.deleteMany({}),
-            Notification.deleteMany({}),
-            Message.deleteMany({})
-        ]);
-        res.json({ success: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== نظام OTP الجديد =====
-
-// طلب رمز التحقق
-app.post('/api/otp/request', authLimiter, async (req, res) => {
-    const { phone, email } = req.body;
-    try {
-        if (!phone || !validator.isMobilePhone(phone, 'ar-SA')) {
-            return res.status(400).json({ error: 'رقم الهاتف غير صحيح' });
-        }
-
-        // حذف OTPs القديمة
-        await OTP.deleteMany({ phone });
-
-        // إنشاء OTP جديد
-        const otp = generateOTP();
-        await OTP.create({ phone, email, otp });
-
-        // إرسال عبر SMS
-        if (process.env.TWILIO_ACCOUNT_SID) {
-            await sendSMSOTP(phone, otp);
-        }
-
-        // إرسال عبر البريد الإلكتروني إن وُجد
-        if (email) {
-            await sendEmailOTP(email, otp);
-        }
-
-        res.json({ success: true, message: 'تم إرسال الرمز بنجاح' });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// التحقق من الرمز
-app.post('/api/otp/verify', async (req, res) => {
-    const { phone, otp } = req.body;
-    try {
-        const record = await verifyOTP(phone, otp);
-        if (!record) {
-            return res.status(400).json({ error: 'الرمز غير صحيح أو انتهت صلاحيته' });
-        }
-
-        await markOTPAsVerified(phone);
-        res.json({ success: true, verified: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== نظام المدفوعات الجديد =====
-
-// إنشاء دفعة
-app.post('/api/payments/create', async (req, res) => {
-    const { userId, auctionId, amount, paymentMethod = 'stripe' } = req.body;
-    try {
-        if (!userId || !auctionId || !amount || amount <= 0) {
-            return res.status(400).json({ error: 'بيانات الدفع غير صحيحة' });
-        }
-
-        const winnerCode = generateWinnerCode();
-        const payment = await createPayment({
-            userId: new mongoose.Types.ObjectId(userId),
-            auctionId: new mongoose.Types.ObjectId(auctionId),
-            winnerCode,
-            amount,
-            paymentMethod,
-            status: 'pending'
-        });
-
-        res.json({ success: true, payment });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على حالة الدفعة
-app.get('/api/payments/:winnerCode', async (req, res) => {
-    try {
-        const payment = await getPayment(req.params.winnerCode);
-        if (!payment) {
-            return res.status(404).json({ error: 'الدفعة غير موجودة' });
-        }
-        res.json(payment);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// تأكيد الدفعة
-app.post('/api/payments/:winnerCode/confirm', async (req, res) => {
-    try {
-        const { transactionId } = req.body;
-        const payment = await getPayment(req.params.winnerCode);
-        
-        if (!payment) {
-            return res.status(404).json({ error: 'الدفعة غير موجودة' });
-        }
-
-        await updatePayment(payment._id, {
-            status: 'completed',
-            transactionId,
-            paidAt: new Date()
-        });
-
-        // تحديث الفائز
-        const winner = await getWinner({ winnerCode: req.params.winnerCode });
+    if (auction.highestBidderId && !auction.winnerCode) {
+        auction.winnerCode = generateWinnerCode();
+        auction.paymentStatus = 'pending';
+        const winner = findUser(auction.highestBidderId);
         if (winner) {
-            await updateWinner(winner._id, { paymentStatus: 'completed' });
+            createNotification(
+                winner.id,
+                `You won ${auction.itemName} with ${auction.currentPrice} AED`,
+                'success'
+            );
         }
-
-        broadcast({ type: 'PAYMENT_COMPLETED', winnerCode: req.params.winnerCode });
-        res.json({ success: true, message: 'تم تأكيد الدفعة بنجاح' });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
+    } else if (!auction.highestBidderId) {
+        auction.paymentStatus = 'not_required';
     }
-});
 
-// ===== نظام الفائزين الجديد =====
-
-// تحديد الفائز عند انتهاء المزاد
-app.post('/api/admin/finalize-auction/:auctionId', async (req, res) => {
-    try {
-        const auction = await findAuction({ _id: req.params.auctionId });
-        if (!auction || auction.status !== 'ended') {
-            return res.status(400).json({ error: 'المزاد غير منتهي بعد' });
-        }
-
-        // التحقق من عدم وجود فائز سابق
-        const existingWinner = await getWinner({ auctionId: req.params.auctionId });
-        if (existingWinner) {
-            return res.status(400).json({ error: 'تم تحديد الفائز بالفعل' });
-        }
-
-        const bids = await findAllBids({ auctionId: req.params.auctionId });
-        if (bids.length === 0) {
-            return res.status(400).json({ error: 'لا توجد مزايدات' });
-        }
-
-        const highestBid = bids[0];
-        const bidder = await findUser({ _id: highestBid.userId });
-        
-        if (!bidder) {
-            return res.status(404).json({ error: 'المزايد غير موجود' });
-        }
-
-        const winnerCode = generateWinnerCode();
-        
-        // إنشاء سجل الفائز
-        const winner = await createWinner({
-            auctionId: new mongoose.Types.ObjectId(req.params.auctionId),
-            userId: new mongoose.Types.ObjectId(highestBid.userId),
-            winnerPhone: bidder.phone,
-            winnerName: bidder.fullname,
-            winnerEmail: bidder.email,
-            finalBidAmount: highestBid.amount,
-            winnerCode
-        });
-
-        // إنشاء سجل دفعة
-        await createPayment({
-            userId: new mongoose.Types.ObjectId(highestBid.userId),
-            auctionId: new mongoose.Types.ObjectId(req.params.auctionId),
-            winnerCode,
-            amount: highestBid.amount,
-            status: 'pending'
-        });
-
-        // إرسال إشعار للفائز
-        await sendAuctionWinnerEmail(
-            bidder.email || bidder.phone,
-            bidder.fullname,
-            auction.itemName,
-            highestBid.amount,
-            winnerCode
-        );
-
-        // تسجيل الحدث
-        await createAuditLog({
-            action: 'AUCTION_FINALIZED',
-            auctionId: req.params.auctionId,
-            details: { winner: bidder.fullname, amount: highestBid.amount }
-        });
-
-        broadcast({ type: 'WINNER_DECLARED', winnerCode, winner: bidder.fullname, amount: highestBid.amount });
-        res.json({ success: true, winner, winnerCode });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على بيانات الفائز
-app.get('/api/winner/:winnerCode', async (req, res) => {
-    try {
-        const winner = await getWinner({ winnerCode: req.params.winnerCode });
-        if (!winner) {
-            return res.status(404).json({ error: 'الفائز غير موجود' });
-        }
-        res.json(winner);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== نظام التقييمات الجديد =====
-
-// إضافة تقييم
-app.post('/api/reviews', async (req, res) => {
-    const { auctionId, buyerId, rating, comment } = req.body;
-    try {
-        if (!auctionId || !buyerId || !rating || rating < 1 || rating > 5) {
-            return res.status(400).json({ error: 'بيانات التقييم غير صحيحة' });
-        }
-
-        const review = await createReview({
-            auctionId: new mongoose.Types.ObjectId(auctionId),
-            buyerId: new mongoose.Types.ObjectId(buyerId),
-            rating,
-            comment
-        });
-
-        res.json({ success: true, review });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على التقييمات
-app.get('/api/reviews/:auctionId', async (req, res) => {
-    try {
-        const reviews = await getReviews(req.params.auctionId);
-        res.json(reviews);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== السجلات والتقارير =====
-
-// الحصول على السجلات
-app.get('/api/admin/logs', async (req, res) => {
-    try {
-        const logs = await AuditLog.find().sort({ createdAt: -1 }).limit(100).lean();
-        res.json(logs);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== معالجة المدفوعات المتقدمة =====
-
-// إنشاء Stripe Payment Intent
-app.post('/api/payments/stripe/create-intent', async (req, res) => {
-    const { amount, auctionId, winnerCode } = req.body;
-    try {
-        if (!amount || amount <= 0) {
-            return res.status(400).json({ error: 'المبلغ غير صحيح' });
-        }
-
-        const result = await createStripePaymentIntent(amount, 'sar', {
-            auctionId,
-            winnerCode
-        });
-
-        if (result.success) {
-            res.json(result);
-        } else {
-            res.status(400).json(result);
-        }
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// التحقق من Stripe Payment
-app.post('/api/payments/stripe/verify', async (req, res) => {
-    const { paymentIntentId, winnerCode } = req.body;
-    try {
-        const result = await confirmStripePayment(paymentIntentId);
-        
-        if (result.success && result.verified) {
-            // تحديث حالة الدفعة
-            const payment = await getPayment(winnerCode);
-            if (payment) {
-                await updatePayment(payment._id, {
-                    status: 'completed',
-                    stripePaymentIntentId: paymentIntentId,
-                    paidAt: new Date()
-                });
-            }
-
-            broadcast({ type: 'PAYMENT_VERIFIED', winnerCode });
-            res.json({ success: true, message: 'تم التحقق من الدفع بنجاح' });
-        } else {
-            res.status(400).json(result);
-        }
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// استرجاع المبلغ
-app.post('/api/payments/:winnerCode/refund', async (req, res) => {
-    try {
-        const payment = await getPayment(req.params.winnerCode);
-        if (!payment) {
-            return res.status(404).json({ error: 'الدفعة غير موجودة' });
-        }
-
-        if (!payment.stripePaymentIntentId) {
-            return res.status(400).json({ error: 'لا يمكن استرجاع هذه الدفعة' });
-        }
-
-        const result = await refundStripePayment(payment.stripePaymentIntentId, payment.amount);
-
-        if (result.success) {
-            await updatePayment(payment._id, { status: 'refunded' });
-            res.json({ success: true, refundId: result.refundId });
-        } else {
-            res.status(400).json(result);
-        }
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// الحصول على معلومات التحويل البنكي
-app.post('/api/payments/bank-transfer', async (req, res) => {
-    const { amount, winnerCode } = req.body;
-    try {
-        const bankDetails = {
-            accountName: 'ALNISR Auction',
-            bankName: 'البنك الأهلي السعودي',
-            iban: 'SA12 3456 7890 1234 5678 9012',
-            accountNumber: '1234567890',
-            amount,
-            reference: winnerCode,
-            validUntil: new Date(Date.now() + 48 * 60 * 60 * 1000),
-            instructions: [
-                'قم بتحويل المبلغ إلى الحساب أعلاه',
-                'استخدم الرقم المرجعي كتفصيل التحويل',
-                'سيتم تأكيد الدفعة خلال 24 ساعة'
-            ]
-        };
-
-        res.json({ success: true, bankDetails });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// تأكيد التحويل البنكي (يدويا من قبل الإدارة)
-app.post('/api/payments/:winnerCode/confirm-transfer', async (req, res) => {
-    try {
-        const payment = await getPayment(req.params.winnerCode);
-        if (!payment) {
-            return res.status(404).json({ error: 'الدفعة غير موجودة' });
-        }
-
-        await updatePayment(payment._id, {
-            status: 'completed',
-            paymentMethod: 'bank_transfer',
-            paidAt: new Date()
-        });
-
-        broadcast({ type: 'PAYMENT_CONFIRMED', winnerCode: req.params.winnerCode });
-        res.json({ success: true, message: 'تم تأكيد التحويل البنكي' });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ===== الإحصائيات والتقارير المحسّنة =====
-
-// تقرير المدفوعات
-app.get('/api/admin/reports/payments', async (req, res) => {
-    try {
-        const startDate = req.query.start ? new Date(req.query.start) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        const endDate = req.query.end ? new Date(req.query.end) : new Date();
-
-        const payments = await Payment.find({
-            createdAt: { $gte: startDate, $lte: endDate }
-        }).lean();
-
-        const totalRevenue = payments.reduce((sum, p) => p.status === 'completed' ? sum + p.amount : sum, 0);
-        const completed = payments.filter(p => p.status === 'completed').length;
-        const pending = payments.filter(p => p.status === 'pending').length;
-        const failed = payments.filter(p => p.status === 'failed').length;
-
-        res.json({
-            period: { start: startDate, end: endDate },
-            totalRevenue,
-            totalTransactions: payments.length,
-            completed,
-            pending,
-            failed,
-            averageTransaction: totalRevenue / completed || 0,
-            byMethod: groupByMethod(payments),
-            dailyRevenue: getDailyRevenue(payments)
-        });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// تقرير الفائزين
-app.get('/api/admin/reports/winners', async (req, res) => {
-    try {
-        const winners = await Winner.find().populate('userId', 'fullname phone').lean();
-        
-        const totalWinners = winners.length;
-        const paidWinners = winners.filter(w => w.paymentStatus === 'completed').length;
-        const pendingWinners = winners.filter(w => w.paymentStatus === 'pending').length;
-        const totalValue = winners.reduce((sum, w) => sum + w.finalBidAmount, 0);
-
-        res.json({
-            totalWinners,
-            paidWinners,
-            pendingWinners,
-            totalValue,
-            averageWinAmount: totalValue / totalWinners || 0,
-            winners
-        });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// 404 Handler
-app.use((req, res) => {
-    res.status(404).json({ error: 'الطلب غير موجود' });
-});
-
-// Global Error Handler
-app.use((err, req, res, next) => {
-    console.error('خطأ:', err);
-    res.status(err.status || 500).json({ error: err.message || 'خطأ الخادم' });
-});
-
-// ===== دوال مساعدة =====
-function groupByMethod(payments) {
-    const grouped = {};
-    payments.forEach(p => {
-        if (p.status === 'completed') {
-            grouped[p.paymentMethod] = (grouped[p.paymentMethod] || 0) + p.amount;
-        }
-    });
-    return grouped;
+    addSystemMessage(
+        `Auction ended: ${auction.itemName}${reason === 'expired' ? ' (time finished)' : ''}`,
+        auction.id,
+        'system'
+    );
 }
 
-function getDailyRevenue(payments) {
-    const daily = {};
-    payments.forEach(p => {
-        if (p.status === 'completed') {
-            const date = new Date(p.createdAt).toISOString().split('T')[0];
-            daily[date] = (daily[date] || 0) + p.amount;
+function closeExpiredAuctions() {
+    const now = Date.now();
+    let changed = false;
+
+    for (const auction of store.auctions) {
+        if (auction.status === 'active' && auction.endAt && new Date(auction.endAt).getTime() <= now) {
+            finalizeAuction(auction, 'expired');
+            changed = true;
         }
-    });
-    return daily;
+    }
+
+    if (changed) {
+        writeStore();
+        broadcastEvent('auction_sync', { auctions: store.auctions.map(sanitizeAuction) });
+        broadcastEvent('message_created', { messages: store.messages.slice(-10).map(sanitizeMessage) });
+    }
 }
 
-// بدء الخادم
-initDB().then(() => {
-    server.listen(PORT, '0.0.0.0', () => {
-        console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
-        console.log(`✅ متاح على: http://localhost:${PORT}`);
-        console.log(`🗄️ Database: MongoDB`);
-        if (NODE_ENV !== 'production' && ADMIN_PASSWORD) {
-            console.log(`📊 Admin Password: ${ADMIN_PASSWORD}`);
-        }
-        console.log(`🌍 Environment: ${NODE_ENV}`);
-        console.log(`📁 Uploads Directory: ${uploadsDir}`);
-    });
-}).catch(e => {
-    console.error('❌ Database error:', e.message);
-    process.exit(1);
+function buildPayments() {
+    return store.auctions
+        .filter((auction) => auction.status === 'ended' && auction.winnerCode)
+        .map((auction) => ({
+            id: `pay_${auction.id}`,
+            _id: `pay_${auction.id}`,
+            winnerCode: auction.winnerCode,
+            amount: auction.currentPrice,
+            status: auction.paymentStatus || 'pending',
+            paymentMethod: auction.paymentMethod || 'manual',
+            createdAt: auction.endedAt || auction.createdAt
+        }));
+}
+
+function buildWinners() {
+    return store.auctions
+        .filter((auction) => auction.status === 'ended' && auction.highestBidderId)
+        .map((auction) => ({
+            id: `win_${auction.id}`,
+            _id: `win_${auction.id}`,
+            auctionId: auction.id,
+            winnerName: auction.highestBidderName,
+            finalBidAmount: auction.currentPrice,
+            winnerCode: auction.winnerCode || '',
+            paymentStatus: auction.paymentStatus || 'pending',
+            createdAt: auction.endedAt || auction.createdAt
+        }));
+}
+
+function buildStats() {
+    const approvedUsers = store.users.filter((user) => user.status === 'approved');
+    const pendingUsers = store.users.filter((user) => user.status === 'pending');
+    const activeAuctions = store.auctions.filter((auction) => auction.status === 'active');
+    const endedAuctions = store.auctions.filter((auction) => auction.status === 'ended');
+    const totalRevenue = endedAuctions.reduce((sum, auction) => sum + Number(auction.currentPrice || 0), 0);
+
+    return {
+        pendingUsers: pendingUsers.length,
+        approvedUsers: approvedUsers.length,
+        totalUsers: store.users.length,
+        activeAuctions: activeAuctions.length,
+        totalAuctions: store.auctions.length,
+        totalBids: store.bids.length,
+        totalRevenue
+    };
+}
+
+app.use((req, res, next) => {
+    const origin = process.env.CORS_ORIGIN || '*';
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(204);
+        return;
+    }
+
+    next();
 });
 
-process.on('SIGINT', () => {
-    clients.forEach(ws => ws.close());
-    process.exit(0);
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+app.get('/api/health', (_req, res) => {
+    closeExpiredAuctions();
+    res.json({
+        ok: true,
+        timestamp: nowIso(),
+        stats: buildStats()
+    });
+});
+
+app.get('/api/stats', (_req, res) => {
+    closeExpiredAuctions();
+    res.json(buildStats());
+});
+
+app.get('/api/public/users', (_req, res) => {
+    res.json(store.users.map(sanitizeUser));
+});
+
+app.post('/api/register', (req, res) => {
+    const fullname = String(req.body.fullname || '').trim();
+    const phone = String(req.body.phone || '').trim();
+    const password = String(req.body.password || '');
+
+    if (!fullname || !phone || password.length < 6) {
+        res.status(400).json({ message: 'Please provide a valid name, phone, and password.' });
+        return;
+    }
+
+    const duplicate = store.users.find((user) => user.phone === phone);
+    if (duplicate) {
+        res.status(409).json({ message: 'This phone number is already registered.' });
+        return;
+    }
+
+    const user = {
+        id: makeId('usr'),
+        memberId: generateMemberId(),
+        fullname,
+        phone,
+        passwordHash: bcrypt.hashSync(password, 10),
+        status: 'pending',
+        createdAt: nowIso()
+    };
+
+    store.users.push(user);
+    addSystemMessage(`New member registration: ${fullname}`, null, 'system');
+    writeStore();
+    broadcastEvent('users_changed', { users: store.users.map(sanitizeUser) });
+
+    res.status(201).json({
+        success: true,
+        message: 'Registration submitted. Waiting for admin approval.',
+        user: sanitizeUser(user)
+    });
+});
+
+app.post('/api/login', (req, res) => {
+    const identifier = String(req.body.identifier || req.body.loginId || '').trim();
+    const password = String(req.body.password || '');
+    const user = store.users.find(
+        (entry) => entry.phone === identifier || entry.memberId === identifier
+    );
+
+    if (!user || !bcrypt.compareSync(password, user.passwordHash)) {
+        res.status(401).json({ message: 'Invalid login details.' });
+        return;
+    }
+
+    if (user.status !== 'approved') {
+        res.status(403).json({ message: 'Your account is still waiting for admin approval.' });
+        return;
+    }
+
+    res.json({ success: true, user: sanitizeUser(user) });
+});
+
+app.post('/api/admin/login', (req, res) => {
+    const password = String(req.body.password || '');
+    const valid = bcrypt.compareSync(password, store.settings.adminPasswordHash);
+
+    if (!valid) {
+        res.status(401).json({ message: 'Wrong admin password.' });
+        return;
+    }
+
+    res.json({
+        success: true,
+        token: 'admin-session',
+        settings: publicSettings()
+    });
+});
+
+app.get('/api/auctions', (_req, res) => {
+    closeExpiredAuctions();
+    const auctions = [...store.auctions]
+        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+        .map(sanitizeAuction);
+    res.json(auctions);
+});
+
+app.get('/api/bids', (req, res) => {
+    const auctionId = String(req.query.auctionId || '').trim();
+    const bids = store.bids
+        .filter((bid) => !auctionId || bid.auctionId === auctionId)
+        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+        .map(sanitizeBid);
+    res.json(bids);
+});
+
+app.get('/api/bids/:auctionId', (req, res) => {
+    const bids = store.bids
+        .filter((bid) => bid.auctionId === req.params.auctionId)
+        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+        .map(sanitizeBid);
+    res.json(bids);
+});
+
+app.post('/api/bid', (req, res) => {
+    closeExpiredAuctions();
+
+    const auction = findAuction(String(req.body.auctionId || ''));
+    const user = findUser(String(req.body.userId || ''));
+    const amount = Number(req.body.amount || 0);
+
+    if (!auction) {
+        res.status(404).json({ message: 'Auction not found.' });
+        return;
+    }
+
+    if (!user || user.status !== 'approved') {
+        res.status(403).json({ message: 'Only approved users can bid.' });
+        return;
+    }
+
+    if (auction.status !== 'active') {
+        res.status(400).json({ message: 'This auction is not active right now.' });
+        return;
+    }
+
+    const minimumAllowed = Number(auction.currentPrice || auction.startPrice || 0) + Number(auction.minimumIncrement || 0);
+    if (!Number.isFinite(amount) || amount < minimumAllowed) {
+        res.status(400).json({
+            message: `Bid must be at least ${minimumAllowed} AED.`
+        });
+        return;
+    }
+
+    const bid = {
+        id: makeId('bid'),
+        auctionId: auction.id,
+        userId: user.id,
+        bidderName: user.fullname,
+        amount,
+        createdAt: nowIso()
+    };
+
+    auction.currentPrice = amount;
+    auction.highestBidderId = user.id;
+    auction.highestBidderName = user.fullname;
+
+    store.bids.push(bid);
+    addSystemMessage(`${user.fullname} placed ${amount} AED on ${auction.itemName}`, auction.id, 'system');
+    writeStore();
+
+    broadcastEvent('bid_placed', {
+        auction: sanitizeAuction(auction),
+        bid: sanitizeBid(bid)
+    });
+    broadcastEvent('message_created', { messages: store.messages.slice(-10).map(sanitizeMessage) });
+
+    res.status(201).json({
+        success: true,
+        auction: sanitizeAuction(auction),
+        bid: sanitizeBid(bid)
+    });
+});
+
+app.get('/api/user/:id', (req, res) => {
+    const user = findUser(req.params.id);
+
+    if (!user) {
+        res.status(404).json({ message: 'User not found.' });
+        return;
+    }
+
+    res.json(sanitizeUser(user));
+});
+
+app.get('/api/user-bids/:userId', (req, res) => {
+    const userId = req.params.userId;
+    const bids = store.bids
+        .filter((bid) => bid.userId === userId)
+        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+        .map((bid) => {
+            const auction = findAuction(bid.auctionId);
+            return {
+                ...sanitizeBid(bid),
+                auction: auction ? sanitizeAuction(auction) : null
+            };
+        });
+
+    res.json(bids);
+});
+
+app.get('/api/messages', (req, res) => {
+    const auctionId = String(req.query.auctionId || '').trim();
+    const includeAll = String(req.query.all || '').trim() === '1';
+
+    const messages = store.messages
+        .filter((message) => includeAll || !auctionId || message.auctionId === auctionId || message.type === 'broadcast')
+        .sort((left, right) => new Date(left.createdAt) - new Date(right.createdAt))
+        .slice(-100)
+        .map(sanitizeMessage);
+
+    res.json(messages);
+});
+
+app.post('/api/messages/send', (req, res) => {
+    const senderId = String(req.body.senderId || '').trim();
+    const senderName = String(req.body.senderName || 'Member').trim();
+    const content = String(req.body.content || '').trim();
+    const auctionId = String(req.body.auctionId || '').trim() || null;
+
+    if (!senderId || !content) {
+        res.status(400).json({ message: 'Message sender and content are required.' });
+        return;
+    }
+
+    const message = {
+        id: makeId('msg'),
+        senderId,
+        senderName,
+        auctionId,
+        content,
+        type: 'chat',
+        createdAt: nowIso()
+    };
+
+    store.messages.push(message);
+    writeStore();
+    broadcastEvent('message_created', { message: sanitizeMessage(message) });
+
+    res.status(201).json({ success: true, message: sanitizeMessage(message) });
+});
+
+app.post('/api/broadcast', (req, res) => {
+    const content = String(req.body.content || req.body.message || '').trim();
+
+    if (!content) {
+        res.status(400).json({ message: 'Broadcast message cannot be empty.' });
+        return;
+    }
+
+    const message = {
+        id: makeId('msg'),
+        senderId: 'admin',
+        senderName: 'Admin',
+        auctionId: null,
+        content,
+        type: 'broadcast',
+        createdAt: nowIso()
+    };
+
+    store.messages.push(message);
+    for (const user of store.users) {
+        createNotification(user.id, content, 'broadcast');
+    }
+
+    writeStore();
+    broadcastEvent('broadcast_sent', { message: sanitizeMessage(message) });
+
+    res.status(201).json({ success: true, message: sanitizeMessage(message) });
+});
+
+app.get('/api/notifications/:userId', (req, res) => {
+    const notifications = store.notifications
+        .filter((notification) => notification.userId === req.params.userId)
+        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+        .map(withLegacyId);
+    res.json(notifications);
+});
+
+app.post('/api/notifications/:userId/mark-read/:id', (req, res) => {
+    const notification = store.notifications.find(
+        (entry) => entry.userId === req.params.userId && entry.id === req.params.id
+    );
+
+    if (!notification) {
+        res.status(404).json({ message: 'Notification not found.' });
+        return;
+    }
+
+    notification.read = true;
+    writeStore();
+    res.json({ success: true, notification: withLegacyId(notification) });
+});
+
+app.get('/api/admin/users', (_req, res) => {
+    const users = [...store.users]
+        .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
+        .map(sanitizeUser);
+    res.json(users);
+});
+
+app.post('/api/admin/approve-user/:id', (req, res) => {
+    const user = findUser(req.params.id);
+
+    if (!user) {
+        res.status(404).json({ message: 'User not found.' });
+        return;
+    }
+
+    user.status = 'approved';
+    createNotification(user.id, 'Your account is approved. You can now join the auction.', 'success');
+    writeStore();
+    broadcastEvent('users_changed', { users: store.users.map(sanitizeUser) });
+
+    res.json({ success: true, user: sanitizeUser(user) });
+});
+
+app.delete('/api/users/:id', (req, res) => {
+    const before = store.users.length;
+    store.users = store.users.filter((user) => user.id !== req.params.id && user.memberId !== req.params.id);
+    store.notifications = store.notifications.filter((notification) => notification.userId !== req.params.id);
+
+    if (store.users.length === before) {
+        res.status(404).json({ message: 'User not found.' });
+        return;
+    }
+
+    writeStore();
+    broadcastEvent('users_changed', { users: store.users.map(sanitizeUser) });
+    res.json({ success: true });
+});
+
+app.post('/api/admin/create-auction', (req, res) => {
+    const itemName = String(req.body.itemName || '').trim();
+    const description = String(req.body.description || '').trim();
+    const startPrice = Number(req.body.startPrice || 0);
+    const durationMinutes = Number(
+        req.body.durationMinutes ||
+        req.body.duration ||
+        store.settings.auctionDuration ||
+        60
+    );
+    const minimumIncrement = Number(
+        req.body.minimumIncrement ||
+        req.body.increment ||
+        store.settings.bidIncrement ||
+        100
+    );
+
+    if (!itemName || !Number.isFinite(startPrice) || startPrice < 0) {
+        res.status(400).json({ message: 'Item name and a valid starting price are required.' });
+        return;
+    }
+
+    const auction = {
+        id: makeId('auc'),
+        itemName,
+        description,
+        startPrice,
+        currentPrice: startPrice,
+        minimumIncrement,
+        durationMinutes,
+        status: 'pending',
+        createdAt: nowIso(),
+        startedAt: null,
+        endAt: null,
+        endedAt: null,
+        highestBidderId: null,
+        highestBidderName: null,
+        winnerCode: null,
+        paymentStatus: 'pending',
+        paymentMethod: 'manual',
+        media: []
+    };
+
+    store.auctions.unshift(auction);
+    addSystemMessage(`Auction created: ${auction.itemName}`, auction.id, 'system');
+    writeStore();
+    broadcastEvent('auction_sync', { auctions: store.auctions.map(sanitizeAuction) });
+
+    res.status(201).json({ success: true, id: auction.id, auction: sanitizeAuction(auction) });
+});
+
+app.post('/api/admin/start-auction/:id', (req, res) => {
+    const auction = findAuction(req.params.id);
+
+    if (!auction) {
+        res.status(404).json({ message: 'Auction not found.' });
+        return;
+    }
+
+    for (const current of store.auctions) {
+        if (current.id !== auction.id && current.status === 'active') {
+            current.status = 'paused';
+        }
+    }
+
+    auction.status = 'active';
+    auction.startedAt = nowIso();
+    auction.endAt = new Date(Date.now() + Number(auction.durationMinutes || 60) * 60 * 1000).toISOString();
+    addSystemMessage(`Auction started: ${auction.itemName}`, auction.id, 'system');
+    writeStore();
+    broadcastEvent('auction_sync', { auctions: store.auctions.map(sanitizeAuction) });
+
+    res.json({ success: true, auction: sanitizeAuction(auction) });
+});
+
+app.post('/api/admin/pause-auction/:id', (req, res) => {
+    const auction = findAuction(req.params.id);
+
+    if (!auction) {
+        res.status(404).json({ message: 'Auction not found.' });
+        return;
+    }
+
+    auction.status = 'paused';
+    addSystemMessage(`Auction paused: ${auction.itemName}`, auction.id, 'system');
+    writeStore();
+    broadcastEvent('auction_sync', { auctions: store.auctions.map(sanitizeAuction) });
+
+    res.json({ success: true, auction: sanitizeAuction(auction) });
+});
+
+app.post('/api/admin/end-auction/:id', (req, res) => {
+    const auction = findAuction(req.params.id);
+
+    if (!auction) {
+        res.status(404).json({ message: 'Auction not found.' });
+        return;
+    }
+
+    finalizeAuction(auction, 'manual');
+    writeStore();
+    broadcastEvent('auction_sync', { auctions: store.auctions.map(sanitizeAuction) });
+    broadcastEvent('message_created', { messages: store.messages.slice(-10).map(sanitizeMessage) });
+
+    res.json({ success: true, auction: sanitizeAuction(auction) });
+});
+
+app.post('/api/admin/extend-auction/:id', (req, res) => {
+    const auction = findAuction(req.params.id);
+    const extraMinutes = Number(req.body.minutes || 5);
+
+    if (!auction) {
+        res.status(404).json({ message: 'Auction not found.' });
+        return;
+    }
+
+    const baseTime = auction.endAt ? new Date(auction.endAt).getTime() : Date.now();
+    auction.endAt = new Date(baseTime + extraMinutes * 60 * 1000).toISOString();
+    if (auction.status === 'pending') {
+        auction.status = 'active';
+        auction.startedAt = auction.startedAt || nowIso();
+    }
+
+    addSystemMessage(`Auction extended by ${extraMinutes} minutes: ${auction.itemName}`, auction.id, 'system');
+    writeStore();
+    broadcastEvent('auction_sync', { auctions: store.auctions.map(sanitizeAuction) });
+
+    res.json({ success: true, auction: sanitizeAuction(auction) });
+});
+
+app.delete('/api/admin/auctions/:id', (req, res) => {
+    const before = store.auctions.length;
+    store.auctions = store.auctions.filter((auction) => auction.id !== req.params.id);
+    store.bids = store.bids.filter((bid) => bid.auctionId !== req.params.id);
+    store.messages = store.messages.filter((message) => message.auctionId !== req.params.id);
+
+    if (store.auctions.length === before) {
+        res.status(404).json({ message: 'Auction not found.' });
+        return;
+    }
+
+    writeStore();
+    broadcastEvent('auction_sync', { auctions: store.auctions.map(sanitizeAuction) });
+
+    res.json({ success: true });
+});
+
+app.get('/api/admin/payments', (_req, res) => {
+    res.json(buildPayments());
+});
+
+app.get('/api/admin/winners', (_req, res) => {
+    res.json(buildWinners());
+});
+
+app.get('/api/admin/settings', (_req, res) => {
+    res.json(publicSettings());
+});
+
+app.post('/api/admin/settings', (req, res) => {
+    const siteName = String(req.body.siteName || store.settings.siteName || DEFAULT_SITE_NAME).trim();
+    const welcomeMessage = String(req.body.welcomeMessage || store.settings.welcomeMessage || '').trim();
+    const bidIncrement = Number(req.body.bidIncrement || store.settings.bidIncrement || 100);
+    const auctionDuration = Number(req.body.auctionDuration || store.settings.auctionDuration || 60);
+    const adminPassword = String(req.body.adminPassword || '').trim();
+
+    store.settings.siteName = siteName || DEFAULT_SITE_NAME;
+    store.settings.welcomeMessage = welcomeMessage;
+    store.settings.bidIncrement = Number.isFinite(bidIncrement) ? bidIncrement : 100;
+    store.settings.auctionDuration = Number.isFinite(auctionDuration) ? auctionDuration : 60;
+
+    if (adminPassword) {
+        store.settings.adminPasswordHash = bcrypt.hashSync(adminPassword, 10);
+    }
+
+    writeStore();
+    broadcastEvent('settings_changed', { settings: publicSettings() });
+
+    res.json({ success: true, settings: publicSettings() });
+});
+
+app.get('/api/admin/export', (_req, res) => {
+    res.json({
+        exportedAt: nowIso(),
+        data: {
+            ...store,
+            users: store.users.map(sanitizeUser)
+        }
+    });
+});
+
+app.post('/api/admin/clear-all', (_req, res) => {
+    const preservedSettings = { ...store.settings };
+    store = {
+        settings: preservedSettings,
+        users: [],
+        auctions: [],
+        bids: [],
+        messages: [],
+        notifications: []
+    };
+
+    writeStore();
+    broadcastEvent('store_reset', { success: true });
+
+    res.json({ success: true });
+});
+
+app.use('/uploads', express.static(path.join(ROOT_DIR, 'uploads')));
+app.use(express.static(ROOT_DIR));
+
+app.get('/api/*', (_req, res) => {
+    res.status(404).json({ message: 'API route not found.' });
+});
+
+app.get('*', (req, res) => {
+    const cleanedPath = req.path === '/' ? 'index.html' : req.path.replace(/^\//, '');
+    const filePath = path.join(ROOT_DIR, cleanedPath);
+
+    if (fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+        res.sendFile(filePath);
+        return;
+    }
+
+    res.sendFile(path.join(ROOT_DIR, 'index.html'));
+});
+
+wss.on('connection', (socket) => {
+    socket.send(JSON.stringify({
+        type: 'connected',
+        data: {
+            timestamp: nowIso(),
+            stats: buildStats()
+        }
+    }));
+});
+
+setInterval(closeExpiredAuctions, 15000);
+
+server.listen(PORT, () => {
+    console.log(`ALNISR server is running on port ${PORT}`);
+    console.log(`Data store: ${STORE_FILE}`);
 });

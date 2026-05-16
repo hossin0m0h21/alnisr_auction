@@ -1,0 +1,15 @@
+{
+  "settings": {
+    "siteName": "ALNISR",
+    "welcomeMessage": "Welcome to ALNISR Auction",
+    "bidIncrement": 100,
+    "auctionDuration": 60,
+    "adminPasswordHash": "",
+    "updatedAt": "2026-05-17T00:00:00.000Z"
+  },
+  "users": [],
+  "auctions": [],
+  "bids": [],
+  "messages": [],
+  "notifications": []
+}
