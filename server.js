@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -222,6 +223,13 @@ function publicSettings() {
         auctionDuration: Number(store.settings.auctionDuration || 60),
         updatedAt: store.settings.updatedAt
     };
+}
+
+function getAdminToken() {
+    return crypto
+        .createHash('sha256')
+        .update(store.settings.adminPasswordHash)
+        .digest('hex');
 }
 
 function generateMemberId() {
@@ -478,10 +486,22 @@ app.post('/api/admin/login', (req, res) => {
 
     res.json({
         success: true,
-        token: 'admin-session',
+        token: getAdminToken(),
         settings: publicSettings()
     });
 });
+
+function requireAdmin(req, res, next) {
+    const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const token = String(req.headers['x-admin-token'] || bearer || '').trim();
+
+    if (!token || token !== getAdminToken()) {
+        res.status(401).json({ message: 'Admin authentication required.' });
+        return;
+    }
+
+    next();
+}
 
 app.get('/api/auctions', (_req, res) => {
     closeExpiredAuctions();
@@ -598,6 +618,13 @@ app.get('/api/user-bids/:userId', (req, res) => {
 app.get('/api/messages', (req, res) => {
     const auctionId = String(req.query.auctionId || '').trim();
     const includeAll = String(req.query.all || '').trim() === '1';
+    const bearer = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    const token = String(req.headers['x-admin-token'] || bearer || '').trim();
+
+    if (includeAll && token !== getAdminToken()) {
+        res.status(401).json({ message: 'Admin authentication required.' });
+        return;
+    }
 
     const messages = store.messages
         .filter((message) => includeAll || !auctionId || message.auctionId === auctionId || message.type === 'broadcast')
@@ -636,7 +663,7 @@ app.post('/api/messages/send', (req, res) => {
     res.status(201).json({ success: true, message: sanitizeMessage(message) });
 });
 
-app.post('/api/broadcast', (req, res) => {
+app.post('/api/broadcast', requireAdmin, (req, res) => {
     const content = String(req.body.content || req.body.message || '').trim();
 
     if (!content) {
@@ -688,14 +715,14 @@ app.post('/api/notifications/:userId/mark-read/:id', (req, res) => {
     res.json({ success: true, notification: withLegacyId(notification) });
 });
 
-app.get('/api/admin/users', (_req, res) => {
+app.get('/api/admin/users', requireAdmin, (_req, res) => {
     const users = [...store.users]
         .sort((left, right) => new Date(right.createdAt) - new Date(left.createdAt))
         .map(sanitizeUser);
     res.json(users);
 });
 
-app.post('/api/admin/approve-user/:id', (req, res) => {
+app.post('/api/admin/approve-user/:id', requireAdmin, (req, res) => {
     const user = findUser(req.params.id);
 
     if (!user) {
@@ -711,7 +738,7 @@ app.post('/api/admin/approve-user/:id', (req, res) => {
     res.json({ success: true, user: sanitizeUser(user) });
 });
 
-app.delete('/api/users/:id', (req, res) => {
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
     const before = store.users.length;
     store.users = store.users.filter((user) => user.id !== req.params.id && user.memberId !== req.params.id);
     store.notifications = store.notifications.filter((notification) => notification.userId !== req.params.id);
@@ -726,7 +753,7 @@ app.delete('/api/users/:id', (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/admin/create-auction', (req, res) => {
+app.post('/api/admin/create-auction', requireAdmin, (req, res) => {
     const itemName = String(req.body.itemName || '').trim();
     const description = String(req.body.description || '').trim();
     const startPrice = Number(req.body.startPrice || 0);
@@ -777,7 +804,7 @@ app.post('/api/admin/create-auction', (req, res) => {
     res.status(201).json({ success: true, id: auction.id, auction: sanitizeAuction(auction) });
 });
 
-app.post('/api/admin/start-auction/:id', (req, res) => {
+app.post('/api/admin/start-auction/:id', requireAdmin, (req, res) => {
     const auction = findAuction(req.params.id);
 
     if (!auction) {
@@ -801,7 +828,7 @@ app.post('/api/admin/start-auction/:id', (req, res) => {
     res.json({ success: true, auction: sanitizeAuction(auction) });
 });
 
-app.post('/api/admin/pause-auction/:id', (req, res) => {
+app.post('/api/admin/pause-auction/:id', requireAdmin, (req, res) => {
     const auction = findAuction(req.params.id);
 
     if (!auction) {
@@ -817,7 +844,7 @@ app.post('/api/admin/pause-auction/:id', (req, res) => {
     res.json({ success: true, auction: sanitizeAuction(auction) });
 });
 
-app.post('/api/admin/end-auction/:id', (req, res) => {
+app.post('/api/admin/end-auction/:id', requireAdmin, (req, res) => {
     const auction = findAuction(req.params.id);
 
     if (!auction) {
@@ -833,7 +860,7 @@ app.post('/api/admin/end-auction/:id', (req, res) => {
     res.json({ success: true, auction: sanitizeAuction(auction) });
 });
 
-app.post('/api/admin/extend-auction/:id', (req, res) => {
+app.post('/api/admin/extend-auction/:id', requireAdmin, (req, res) => {
     const auction = findAuction(req.params.id);
     const extraMinutes = Number(req.body.minutes || 5);
 
@@ -856,7 +883,7 @@ app.post('/api/admin/extend-auction/:id', (req, res) => {
     res.json({ success: true, auction: sanitizeAuction(auction) });
 });
 
-app.delete('/api/admin/auctions/:id', (req, res) => {
+app.delete('/api/admin/auctions/:id', requireAdmin, (req, res) => {
     const before = store.auctions.length;
     store.auctions = store.auctions.filter((auction) => auction.id !== req.params.id);
     store.bids = store.bids.filter((bid) => bid.auctionId !== req.params.id);
@@ -873,19 +900,19 @@ app.delete('/api/admin/auctions/:id', (req, res) => {
     res.json({ success: true });
 });
 
-app.get('/api/admin/payments', (_req, res) => {
+app.get('/api/admin/payments', requireAdmin, (_req, res) => {
     res.json(buildPayments());
 });
 
-app.get('/api/admin/winners', (_req, res) => {
+app.get('/api/admin/winners', requireAdmin, (_req, res) => {
     res.json(buildWinners());
 });
 
-app.get('/api/admin/settings', (_req, res) => {
+app.get('/api/admin/settings', requireAdmin, (_req, res) => {
     res.json(publicSettings());
 });
 
-app.post('/api/admin/settings', (req, res) => {
+app.post('/api/admin/settings', requireAdmin, (req, res) => {
     const siteName = String(req.body.siteName || store.settings.siteName || DEFAULT_SITE_NAME).trim();
     const welcomeMessage = String(req.body.welcomeMessage || store.settings.welcomeMessage || '').trim();
     const bidIncrement = Number(req.body.bidIncrement || store.settings.bidIncrement || 100);
@@ -907,7 +934,7 @@ app.post('/api/admin/settings', (req, res) => {
     res.json({ success: true, settings: publicSettings() });
 });
 
-app.get('/api/admin/export', (_req, res) => {
+app.get('/api/admin/export', requireAdmin, (_req, res) => {
     res.json({
         exportedAt: nowIso(),
         data: {
@@ -917,7 +944,7 @@ app.get('/api/admin/export', (_req, res) => {
     });
 });
 
-app.post('/api/admin/clear-all', (_req, res) => {
+app.post('/api/admin/clear-all', requireAdmin, (_req, res) => {
     const preservedSettings = { ...store.settings };
     store = {
         settings: preservedSettings,

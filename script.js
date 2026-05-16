@@ -8,6 +8,7 @@ const state = {
     lang: localStorage.getItem('alnisrLang') || 'ar',
     currentUser: loadCurrentUser(),
     adminLoggedIn: localStorage.getItem('adminLoggedIn') === '1',
+    adminToken: localStorage.getItem('alnisrAdminToken') || '',
     currentAuction: null,
     ws: null,
     timerInterval: null,
@@ -50,11 +51,17 @@ function getApiUrl(path = '') {
 }
 
 async function apiFetch(path, options = {}) {
+    const headers = {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+    };
+
+    if (options.admin && state.adminToken) {
+        headers['x-admin-token'] = state.adminToken;
+    }
+
     const response = await fetch(getApiUrl(path), {
-        headers: {
-            'Content-Type': 'application/json',
-            ...(options.headers || {})
-        },
+        headers,
         ...options
     });
 
@@ -277,7 +284,7 @@ async function dbGetAll(storeName) {
     }
 
     if (storeName === 'messages') {
-        return apiFetch('/messages?all=1');
+        return apiFetch('/messages?all=1', { admin: true });
     }
 
     return [];
@@ -728,13 +735,15 @@ async function handleAdminLogin(event) {
     event.preventDefault();
 
     try {
-        await apiFetch('/admin/login', {
+        const loginResponse = await apiFetch('/admin/login', {
             method: 'POST',
             body: JSON.stringify({ password: $('admin-password')?.value || '' })
         });
 
         localStorage.setItem('adminLoggedIn', '1');
+        localStorage.setItem('alnisrAdminToken', loginResponse.token || '');
         state.adminLoggedIn = true;
+        state.adminToken = loginResponse.token || '';
         showAdminPanel(true);
         showToast(state.lang === 'ar' ? 'تم تسجيل دخول المشرف' : 'Admin login successful');
         await loadAdminData();
@@ -745,7 +754,9 @@ async function handleAdminLogin(event) {
 
 function adminLogout() {
     localStorage.removeItem('adminLoggedIn');
+    localStorage.removeItem('alnisrAdminToken');
     state.adminLoggedIn = false;
+    state.adminToken = '';
     showAdminPanel(false);
 }
 
@@ -780,7 +791,7 @@ async function loadDashboard() {
     const [bids, auctions, messages] = await Promise.all([
         apiFetch('/bids'),
         apiFetch('/auctions'),
-        apiFetch('/messages?all=1')
+        apiFetch('/messages?all=1', { admin: true })
     ]);
 
     const recentActivity = [
@@ -816,7 +827,7 @@ async function loadDashboard() {
 }
 
 async function loadMembersData() {
-    const users = await apiFetch('/admin/users');
+    const users = await apiFetch('/admin/users', { admin: true });
     const pending = users.filter((user) => user.status === 'pending');
     const approved = users.filter((user) => user.status === 'approved');
 
@@ -889,7 +900,7 @@ async function viewMemberBids(userId) {
 }
 
 async function approveUser(id) {
-    await apiFetch(`/admin/approve-user/${id}`, { method: 'POST' });
+    await apiFetch(`/admin/approve-user/${id}`, { method: 'POST', admin: true });
     showToast(state.lang === 'ar' ? 'تمت الموافقة' : 'User approved');
     await loadMembersData();
     await loadDashboard();
@@ -900,7 +911,7 @@ async function rejectUser(id) {
         state.lang === 'ar' ? 'رفض العضو' : 'Reject member',
         `<p>${state.lang === 'ar' ? 'سيتم حذف طلب العضو نهائيًا.' : 'This will remove the member request permanently.'}</p>`,
         async () => {
-            await apiFetch(`/users/${id}`, { method: 'DELETE' });
+            await apiFetch(`/users/${id}`, { method: 'DELETE', admin: true });
             showToast(state.lang === 'ar' ? 'تم حذف الطلب' : 'Member request removed');
             await loadMembersData();
             await loadDashboard();
@@ -914,7 +925,7 @@ async function deleteUser(id) {
         state.lang === 'ar' ? 'حذف العضو' : 'Delete member',
         `<p>${state.lang === 'ar' ? 'سيتم حذف العضو من النظام.' : 'This will delete the member from the system.'}</p>`,
         async () => {
-            await apiFetch(`/users/${id}`, { method: 'DELETE' });
+            await apiFetch(`/users/${id}`, { method: 'DELETE', admin: true });
             showToast(state.lang === 'ar' ? 'تم حذف العضو' : 'Member deleted');
             await loadMembersData();
             await loadDashboard();
@@ -962,9 +973,9 @@ async function loadAdminBidHistory(auctionId) {
         return;
     }
 
-    const [auctions, bids] = await Promise.all([
-        apiFetch('/auctions'),
-        apiFetch(`/bids/${auctionId}`)
+        const [auctions, bids] = await Promise.all([
+            apiFetch('/auctions'),
+            apiFetch(`/bids/${auctionId}`)
     ]);
 
     const auction = auctions.find((item) => item.id === auctionId);
@@ -1017,6 +1028,7 @@ async function createAuction(event) {
     try {
         await apiFetch('/admin/create-auction', {
             method: 'POST',
+            admin: true,
             body: JSON.stringify({
                 itemName,
                 description,
@@ -1043,6 +1055,7 @@ async function setAuctionStatus(action) {
 
     await apiFetch(`/admin/${action}-auction/${state.currentAuction.id}`, {
         method: 'POST',
+        admin: true,
         body: JSON.stringify({})
     });
 
@@ -1069,6 +1082,7 @@ async function extendAuction() {
 
     await apiFetch(`/admin/extend-auction/${state.currentAuction.id}`, {
         method: 'POST',
+        admin: true,
         body: JSON.stringify({ minutes: 5 })
     });
     showToast(state.lang === 'ar' ? 'تم تمديد المزاد 5 دقائق' : 'Auction extended by 5 minutes');
@@ -1080,7 +1094,7 @@ async function deleteAuction(id) {
         state.lang === 'ar' ? 'حذف المزاد' : 'Delete auction',
         `<p>${state.lang === 'ar' ? 'سيتم حذف المزاد وكل مزايداته.' : 'This will delete the auction and all related bids.'}</p>`,
         async () => {
-            await apiFetch(`/admin/auctions/${id}`, { method: 'DELETE' });
+            await apiFetch(`/admin/auctions/${id}`, { method: 'DELETE', admin: true });
             showToast(state.lang === 'ar' ? 'تم حذف المزاد' : 'Auction deleted');
             await refreshAdminCurrentAuction();
             await loadDashboard();
@@ -1094,7 +1108,7 @@ async function loadAuctionTab() {
 }
 
 async function loadAdminMessages() {
-    const messages = await apiFetch('/messages?all=1');
+    const messages = await apiFetch('/messages?all=1', { admin: true });
     const container = $('admin-messages-list');
 
     if (!container) {
@@ -1121,6 +1135,7 @@ async function sendBroadcast(event) {
     try {
         await apiFetch('/broadcast', {
             method: 'POST',
+            admin: true,
             body: JSON.stringify({ content: message })
         });
 
@@ -1133,7 +1148,7 @@ async function sendBroadcast(event) {
 }
 
 async function loadSettings() {
-    const settings = await apiFetch('/admin/settings');
+    const settings = await apiFetch('/admin/settings', { admin: true });
     $('setting-site-name') && ($('setting-site-name').value = settings.siteName || DEFAULT_SITE_NAME);
     $('setting-welcome-msg') && ($('setting-welcome-msg').value = settings.welcomeMessage || '');
 }
@@ -1144,6 +1159,7 @@ async function saveSettings(event) {
     try {
         await apiFetch('/admin/settings', {
             method: 'POST',
+            admin: true,
             body: JSON.stringify({
                 siteName: $('setting-site-name')?.value.trim(),
                 welcomeMessage: $('setting-welcome-msg')?.value.trim()
@@ -1157,12 +1173,12 @@ async function saveSettings(event) {
 }
 
 async function exportData() {
-    const payload = await apiFetch('/admin/export');
+    const payload = await apiFetch('/admin/export', { admin: true });
     downloadJson('alnisr-export.json', payload);
 }
 
 async function backupDatabase() {
-    const payload = await apiFetch('/admin/export');
+    const payload = await apiFetch('/admin/export', { admin: true });
     downloadJson(`alnisr-backup-${Date.now()}.json`, payload);
 }
 
@@ -1185,6 +1201,7 @@ function clearAllData() {
         async () => {
             await apiFetch('/admin/clear-all', {
                 method: 'POST',
+                admin: true,
                 body: JSON.stringify({})
             });
             showToast(state.lang === 'ar' ? 'تم مسح البيانات' : 'Data cleared');
