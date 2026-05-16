@@ -5,11 +5,18 @@ import { Payment } from './database.js';
 
 dotenv.config();
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_fake_key');
+function getStripeClient() {
+    if (!process.env.STRIPE_SECRET_KEY) {
+        throw new Error('STRIPE_SECRET_KEY is not configured');
+    }
+
+    return new Stripe(process.env.STRIPE_SECRET_KEY);
+}
 
 // ===== معالجة Stripe Payments =====
 export async function createStripePaymentIntent(amount, currency = 'sar', metadata = {}) {
     try {
+        const stripe = getStripeClient();
         const paymentIntent = await stripe.paymentIntents.create({
             amount: Math.round(amount * 100), // تحويل للفلس
             currency: currency.toLowerCase(),
@@ -32,6 +39,7 @@ export async function createStripePaymentIntent(amount, currency = 'sar', metada
 
 export async function confirmStripePayment(paymentIntentId) {
     try {
+        const stripe = getStripeClient();
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
         
         if (paymentIntent.status === 'succeeded') {
@@ -51,6 +59,7 @@ export async function confirmStripePayment(paymentIntentId) {
 
 export async function refundStripePayment(paymentIntentId, amount = null) {
     try {
+        const stripe = getStripeClient();
         const refund = await stripe.refunds.create({
             payment_intent: paymentIntentId,
             amount: amount ? Math.round(amount * 100) : undefined

@@ -5,24 +5,37 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const PUBLIC_BASE_URL = (
+    process.env.PUBLIC_BASE_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    process.env.BACKEND_URL ||
+    'http://localhost:3000'
+).replace(/\/+$/, '');
+
 // ===== إعداد البريد الإلكتروني =====
-const emailTransporter = nodemailer.createTransport({
-    service: process.env.EMAIL_SERVICE || 'gmail',
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASSWORD
+function getEmailTransporter() {
+    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+        throw new Error('Email service is not configured');
     }
-});
+
+    return nodemailer.createTransport({
+        service: process.env.EMAIL_SERVICE || 'gmail',
+        auth: {
+            user: process.env.EMAIL_USER,
+            pass: process.env.EMAIL_PASSWORD
+        }
+    });
+}
 
 // ===== إعداد Twilio للـ SMS =====
-const twilioClient = twilio(
-    process.env.TWILIO_ACCOUNT_SID,
-    process.env.TWILIO_AUTH_TOKEN
-);
+const twilioClient = process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN
+    ? twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN)
+    : null;
 
 // ===== دوال البريد الإلكتروني =====
 export async function sendEmailOTP(email, otp, fullname = 'المستخدم') {
     try {
+        const emailTransporter = getEmailTransporter();
         const htmlContent = `
             <!DOCTYPE html>
             <html dir="rtl" lang="ar">
@@ -72,6 +85,7 @@ export async function sendEmailOTP(email, otp, fullname = 'المستخدم') {
 
 export async function sendAuctionWinnerEmail(email, fullname, auctionName, amount, winnerCode) {
     try {
+        const emailTransporter = getEmailTransporter();
         const htmlContent = `
             <!DOCTYPE html>
             <html dir="rtl" lang="ar">
@@ -115,7 +129,7 @@ export async function sendAuctionWinnerEmail(email, fullname, auctionName, amoun
                     </div>
                     
                     <p>يرجى إكمال الدفع خلال 48 ساعة لتأكيد فوزك:</p>
-                    <a href="${process.env.BACKEND_URL}/payment/${winnerCode}" class="payment-button">إجراء الدفع الآن</a>
+                    <a href="${PUBLIC_BASE_URL}/payment/${winnerCode}" class="payment-button">إجراء الدفع الآن</a>
                     
                     <p style="color: #999; font-size: 12px; margin-top: 20px;">يرجى عدم تأخير الدفع لتجنب إلغاء الفوز</p>
                 </div>
@@ -139,6 +153,7 @@ export async function sendAuctionWinnerEmail(email, fullname, auctionName, amoun
 
 export async function sendBidConfirmationEmail(email, fullname, auctionName, bidAmount) {
     try {
+        const emailTransporter = getEmailTransporter();
         await emailTransporter.sendMail({
             from: process.env.EMAIL_FROM || 'ALNISR Auction',
             to: email,
@@ -159,6 +174,7 @@ export async function sendBidConfirmationEmail(email, fullname, auctionName, bid
 
 export async function sendPaymentConfirmationEmail(email, fullname, orderId, amount, paymentMethod) {
     try {
+        const emailTransporter = getEmailTransporter();
         await emailTransporter.sendMail({
             from: process.env.EMAIL_FROM || 'ALNISR Auction',
             to: email,
@@ -182,7 +198,7 @@ export async function sendPaymentConfirmationEmail(email, fullname, orderId, amo
 // ===== دوال الـ SMS =====
 export async function sendSMSOTP(phoneNumber, otp) {
     try {
-        if (!process.env.TWILIO_ACCOUNT_SID) {
+        if (!twilioClient) {
             console.warn('⚠️ Twilio لم يتم تكوينه');
             return { success: true, message: 'SMS في وضع التطوير' };
         }

@@ -81,7 +81,15 @@ const getBackendHost = () => {
     return 'alnisr-auction1.onrender.com'; // 📝 رابط Render هنا
 };
 
-const BACKEND_HOST = getBackendHost();
+const BACKEND_HOST =
+    window.ALNISR_BACKEND_HOST ||
+    document.querySelector('meta[name="alnisr-backend-host"]')?.content ||
+    localStorage.getItem('alnisrBackendHost') ||
+    (
+        window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+            ? getBackendHost()
+            : window.location.host
+    );
 
 function getApiUrl() {
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {

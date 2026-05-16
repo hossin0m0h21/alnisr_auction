@@ -23,13 +23,18 @@ const app = express();
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-const PORT = process.env.PORT || 3000;
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin2026';
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const PORT = process.env.PORT || 3000;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (NODE_ENV === 'production' ? '' : 'admin2026');
 let clients = new Set();
 let auctionTimers = new Map();
 
-const uploadsDir = path.join(__dirname, 'uploads');
+if (NODE_ENV === 'production' && !ADMIN_PASSWORD) {
+    console.error('ADMIN_PASSWORD must be configured in production');
+    process.exit(1);
+}
+
+const uploadsDir = path.resolve(process.env.UPLOADS_DIR || path.join(__dirname, 'uploads'));
 if (!fs.existsSync(uploadsDir)) {
     fs.mkdirSync(uploadsDir, { recursive: true });
 }
@@ -87,9 +92,10 @@ function startAuctionTimer(auctionId, endTime) {
 
 // ===== الأمان =====
 app.use(helmet());
+const corsOrigin = process.env.CORS_ORIGIN || '*';
 app.use(cors({
-    origin: process.env.CORS_ORIGIN || '*',
-    credentials: true
+    origin: corsOrigin === '*' ? true : corsOrigin.split(',').map(origin => origin.trim()),
+    credentials: corsOrigin !== '*'
 }));
 
 // ===== Rate Limiting =====
@@ -108,6 +114,17 @@ const authLimiter = rateLimit({
 app.use(limiter);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(__dirname));
+
+app.get('/api/health', (req, res) => {
+    const dbState = mongoose.connection.readyState;
+
+    res.status(dbState === 1 ? 200 : 503).json({
+        status: dbState === 1 ? 'ok' : 'degraded',
+        environment: NODE_ENV,
+        database: dbState === 1 ? 'connected' : 'disconnected',
+        uploadsDir
+    });
+});
 
 // ===== دالة البث الفوري =====
 function broadcast(data) {
@@ -307,6 +324,10 @@ app.get('/api/user-bids/:userId', async (req, res) => {
 // تسجيل دخول الإدارة
 app.post('/api/admin/login', (req, res) => {
     const { password } = req.body;
+    if (!ADMIN_PASSWORD) {
+        return res.status(503).json({ error: 'Admin password is not configured' });
+    }
+
     if (password === ADMIN_PASSWORD) {
         res.json({ success: true });
     } else {
@@ -1082,8 +1103,11 @@ initDB().then(() => {
         console.log(`✅ Server running on http://0.0.0.0:${PORT}`);
         console.log(`✅ متاح على: http://localhost:${PORT}`);
         console.log(`🗄️ Database: MongoDB`);
-        console.log(`📊 Admin Password: ${ADMIN_PASSWORD}`);
+        if (NODE_ENV !== 'production' && ADMIN_PASSWORD) {
+            console.log(`📊 Admin Password: ${ADMIN_PASSWORD}`);
+        }
         console.log(`🌍 Environment: ${NODE_ENV}`);
+        console.log(`📁 Uploads Directory: ${uploadsDir}`);
     });
 }).catch(e => {
     console.error('❌ Database error:', e.message);

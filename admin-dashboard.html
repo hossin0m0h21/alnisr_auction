@@ -209,9 +209,16 @@
     </div>
 
     <script>
-        const API_URL = window.location.hostname === 'localhost' 
+        const configuredBackendHost =
+            window.ALNISR_BACKEND_HOST ||
+            document.querySelector('meta[name="alnisr-backend-host"]')?.content ||
+            localStorage.getItem('alnisrBackendHost');
+        const resolvedBackendHost = configuredBackendHost || (window.location.hostname === 'localhost'
+            ? 'localhost:3000'
+            : window.location.host);
+        const API_URL = window.location.hostname === 'localhost'
             ? 'http://localhost:3000/api'
-            : 'https://your-backend.onrender.com/api';
+            : `https://${resolvedBackendHost}/api`;
 
         function switchTab(tabName) {
             document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));

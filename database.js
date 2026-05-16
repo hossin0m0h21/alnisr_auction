@@ -3,7 +3,9 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://alnisr_auction:Hmh4242001@alnisrauction.l7jysft.mongodb.net/?appName=AlnisrAuction';
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const DEFAULT_DEV_MONGO_URI = 'mongodb://127.0.0.1:27017/alnisr';
+const MONGO_URI = process.env.MONGO_URI || (NODE_ENV === 'production' ? '' : DEFAULT_DEV_MONGO_URI);
 
 let db = null;
 
@@ -152,11 +154,12 @@ const Review = mongoose.model('Review', reviewSchema);
 // ===== دوال قاعدة البيانات الأساسية =====
 export async function initDB() {
     try {
-        await mongoose.connect(MONGO_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true
-        });
-        console.log('✅ متصل بـ MongoDB:', MONGO_URI);
+        if (!MONGO_URI) {
+            throw new Error('MONGO_URI must be set before starting the server in production');
+        }
+
+        await mongoose.connect(MONGO_URI);
+        console.log('✅ متصل بـ MongoDB');
         db = mongoose.connection;
         return db;
     } catch (error) {
