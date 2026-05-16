@@ -1153,16 +1153,17 @@ async function loadSettings() {
     $('setting-welcome-msg') && ($('setting-welcome-msg').value = settings.welcomeMessage || '');
 }
 
-async function saveSettings(event) {
+async function saveSettingsLegacy(event) {
     event.preventDefault();
 
     try {
-        await apiFetch('/admin/settings', {
+        const response = await apiFetch('/admin/settings', {
             method: 'POST',
             admin: true,
             body: JSON.stringify({
                 siteName: $('setting-site-name')?.value.trim(),
-                welcomeMessage: $('setting-welcome-msg')?.value.trim()
+                welcomeMessage: $('setting-welcome-msg')?.value.trim(),
+                adminPassword: $('setting-admin-password')?.value.trim()
             })
         });
 
@@ -1175,6 +1176,33 @@ async function saveSettings(event) {
 async function exportData() {
     const payload = await apiFetch('/admin/export', { admin: true });
     downloadJson('alnisr-export.json', payload);
+}
+
+async function saveSettings(event) {
+    event.preventDefault();
+
+    try {
+        const response = await apiFetch('/admin/settings', {
+            method: 'POST',
+            admin: true,
+            body: JSON.stringify({
+                siteName: $('setting-site-name')?.value.trim(),
+                welcomeMessage: $('setting-welcome-msg')?.value.trim(),
+                adminPassword: $('setting-admin-password')?.value.trim()
+            })
+        });
+
+        if (response.token) {
+            state.adminToken = response.token;
+            localStorage.setItem('alnisrAdminToken', response.token);
+        }
+        if ($('setting-admin-password')) {
+            $('setting-admin-password').value = '';
+        }
+        showToast(state.lang === 'ar' ? 'ØªÙ… Ø­ÙØ¸ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª' : 'Settings saved');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
 async function backupDatabase() {

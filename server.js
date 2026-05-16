@@ -931,7 +931,7 @@ app.post('/api/admin/settings', requireAdmin, (req, res) => {
     writeStore();
     broadcastEvent('settings_changed', { settings: publicSettings() });
 
-    res.json({ success: true, settings: publicSettings() });
+    res.json({ success: true, settings: publicSettings(), token: getAdminToken() });
 });
 
 app.get('/api/admin/export', requireAdmin, (_req, res) => {
